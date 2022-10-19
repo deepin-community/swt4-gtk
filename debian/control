@@ -1,0 +1,73 @@
+Source: swt4-gtk
+Section: java
+Priority: optional
+Maintainer: Debian Java Maintainers <pkg-java-maintainers@lists.alioth.debian.org>
+Uploaders:
+ Adrian Perez <blackxored@debian.org>,
+ أحمد المحمودي (Ahmed El-Mahmoudy) <aelmahmoudy@sabily.org>,
+ Jakub Adam <jakub.adam@ktknet.cz>
+Build-Depends:
+ ant,
+ debhelper-compat (= 13),
+ default-jdk,
+ fastjar,
+ javahelper,
+ libglu1-mesa-dev,
+ libgtk-3-dev,
+ libxt-dev,
+ maven-repo-helper
+Standards-Version: 4.5.1
+Vcs-Git: https://salsa.debian.org/java-team/swt-gtk.git
+Vcs-Browser: https://salsa.debian.org/java-team/swt-gtk
+Homepage: http://www.eclipse.org/swt/
+Rules-Requires-Root: no
+
+Package: libswt-gtk-4-java
+Architecture: any
+Depends: libswt-gtk-4-jni (= ${binary:Version}), ${misc:Depends}
+Description: Standard Widget Toolkit for GTK+ Java library
+ The Standard Widget Toolkit (SWT) is a fast and rich Java GUI toolkit.
+ For platforms with existing SWT implementations it provides efficient, portable
+ and fast access to native controls and user interface facilities.
+
+Package: libswt-gtk-4-jni
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Breaks: libswt-gtk-4-java (<< ${binary:Version}), libswt-gtk-4-java (>> ${binary:Version})
+Description: Standard Widget Toolkit for GTK+ JNI library
+ The Standard Widget Toolkit (SWT) is a fast and rich Java GUI toolkit.
+ For platforms with existing SWT implementations it provides efficient, portable
+ and fast access to native controls and user interface facilities.
+ .
+ This package includes the JNI libraries (atk, awt, gtk, pi).
+
+Package: libswt-cairo-gtk-4-jni
+Architecture: any
+Depends: libswt-gtk-4-jni (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
+Description: Standard Widget Toolkit for GTK+ Cairo JNI library
+ The Standard Widget Toolkit (SWT) is a fast and rich Java GUI toolkit.
+ For platforms with existing SWT implementations it provides efficient, portable
+ and fast access to native controls and user interface facilities.
+ .
+ This package includes the Cairo JNI libraries.
+
+Package: libswt-glx-gtk-4-jni
+Architecture: any
+Depends: libswt-gtk-4-jni (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
+Description: Standard Widget Toolkit for GTK+ GLX JNI library
+ The Standard Widget Toolkit (SWT) is a fast and rich Java GUI toolkit.
+ For platforms with existing SWT implementations it provides efficient, portable
+ and fast access to native controls and user interface facilities.
+ .
+ This package includes the GLX JNI libraries.
+
+Package: libswt-webkit-gtk-4-jni
+Architecture: any
+Depends: libswt-gtk-4-jni (= ${binary:Version}), libwebkit2gtk-4.0-37, ${shlibs:Depends}, ${misc:Depends}
+Breaks: libswt-gtk-4-java (<< ${binary:Version}), libswt-gtk-4-java (>> ${binary:Version})
+Description: Standard Widget Toolkit for GTK+ WebKit JNI library
+ The Standard Widget Toolkit (SWT) is a fast and rich Java GUI toolkit.
+ For platforms with existing SWT implementations it provides efficient, portable
+ and fast access to native controls and user interface facilities.
+ .
+ This package includes the WebKit JNI libraries.

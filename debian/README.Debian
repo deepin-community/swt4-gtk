@@ -1,0 +1,17 @@
+SWT for Debian
+--------------
+
+This is the Debian version of the Standard Widget Toolkit (SWT) for GTK+.
+
+The SWT libraries are maintained separately from the eclipse package.
+
+Currently, the full SWT distribution is provided by the following packages
+(where X.Y is the current upstream version number):
+
+ * libswt-cairo-gtk-X.Y-jni: Cairo JNI libraries.
+ * libswt-glx-gtk-X.Y-jni: GLX JNI libraries.
+ * libswt-gnome-gtk-X.Y-jni: GNOME JNI Library.
+ * libswt-gtk-X.Y-java: SWT JAR libraries.
+ * libswt-gtk-X.Y-jni: SWT JNI libraries.
+
+ -- Adrian Perez <adrianperez.deb@gmail.com>, Thu, 17 Dec 2009 20:00:30 -0500

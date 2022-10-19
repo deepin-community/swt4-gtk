@@ -1,0 +1,52 @@
+#!/usr/bin/make -f
+
+include /usr/share/dpkg/pkg-info.mk
+
+export DEB_CFLAGS_MAINT_APPEND=-fPIC
+DEB_BUILD_MAINT_OPTIONS=hardening=+all
+include /usr/share/dpkg/buildflags.mk
+CFLAGS+=$(CPPFLAGS)
+export DEB_LDFLAGS  := $(LDFLAGS)
+
+include /usr/share/javahelper/java-vars.mk
+
+DEB_DH_MAKESHLIBS_ARGS_ALL := -Xjni
+
+AWT_LIB_DIR := $(JAVA_ARCH)
+
+export AWT_LIB_PATH=/usr/lib/jvm/default-java/jre/lib/$(AWT_LIB_DIR)
+
+MAKE_ARGS=-C bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library -I../../../Eclipse\ SWT/common/library/ -f make_linux.mak
+
+ifeq ($(shell dpkg-architecture -qDEB_HOST_ARCH_BITS), 64)
+  export SWT_PTR_CFLAGS=-DJNI64
+endif
+
+
+%:
+	dh $@ --buildsystem=makefile --with maven-repo-helper --with javahelper
+
+override_dh_auto_build:
+	cd bundles/org.eclipse.swt && ant -f buildFragment.xml build.jars -Dswt.ws=gtk -Dplugindir=.
+	cp bundles/org.eclipse.swt/swt.jar swt-gtk-$(DEB_UPSTREAM_VERSION).jar
+
+	cp bundles/org.eclipse.swt/Eclipse\ SWT/common/library/*         bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/
+	cp bundles/org.eclipse.swt/Eclipse\ SWT\ AWT/gtk/library/*.c     bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/
+	cp bundles/org.eclipse.swt/Eclipse\ SWT\ PI/cairo/library/*      bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/
+	cp bundles/org.eclipse.swt/Eclipse\ SWT\ OpenGL/glx/library/*    bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/
+	cp bundles/org.eclipse.swt/Eclipse\ SWT\ PI/common/library/*     bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/
+	cp bundles/org.eclipse.swt/Eclipse\ SWT\ WebKit/gtk/library/*    bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/
+
+	GTK_VERSION=3.0 dh_auto_build -- $(MAKE_ARGS) make_atk make_awt make_cairo make_glx make_swt make_webkit make_swtpi
+
+	cp bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/*.so .
+
+override_dh_auto_clean:
+	dh_auto_clean -- $(MAKE_ARGS) make_linux.mak clean
+	rm -f bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/callback*
+	rm -f bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/make_common.mak
+	rm -f bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/swt*
+	rm -f bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/cairo*
+	rm -f bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/glx*
+	rm -f bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/c*
+	rm -f bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/webkit*

@@ -1,0 +1,5 @@
+*.so
+bundles/org.eclipse.swt/@dot/
+bundles/org.eclipse.swt/swt.jar
+bundles/org.eclipse.swt/temp.folder/
+swt-gtk-*.jar
