@@ -25,10 +25,14 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.CTabFolder;
+import org.eclipse.swt.custom.CTabFolder2Listener;
+import org.eclipse.swt.custom.CTabFolderEvent;
 import org.eclipse.swt.custom.CTabItem;
 import org.eclipse.swt.custom.SashForm;
 import org.eclipse.swt.graphics.Color;
@@ -144,6 +148,48 @@ private void createTabFolder(List<String> events, int numItems) {
 }
 
 @Test
+public void test_ItemCountListeners() {
+	int expectedTabsCount = 1;
+	int expectedEventsCount = 0;
+	createTabFolder(null, expectedTabsCount);
+	AtomicLong itemCount = new AtomicLong();
+	AtomicLong callCount = new AtomicLong();
+	Consumer<CTabFolderEvent> tabCountUpdate = e -> {
+		itemCount.set(ctabFolder.getItemCount());
+		callCount.incrementAndGet();
+	};
+	ctabFolder.addCTabFolder2Listener(CTabFolder2Listener.itemsCountAdapter(tabCountUpdate));
+
+	CTabItem item1 = new CTabItem(ctabFolder, SWT.NONE);
+	expectedTabsCount ++;
+	expectedEventsCount++;
+	assertEquals(expectedTabsCount, ctabFolder.getItemCount());
+	assertEquals(ctabFolder.getItemCount(), itemCount.get());
+	assertEquals(expectedEventsCount, callCount.get());
+
+	CTabItem item2 = new CTabItem(ctabFolder, SWT.NONE);
+	expectedEventsCount++;
+	expectedTabsCount ++;
+	assertEquals(expectedTabsCount, ctabFolder.getItemCount());
+	assertEquals(ctabFolder.getItemCount(), itemCount.get());
+	assertEquals(expectedEventsCount, callCount.get());
+
+	item1.dispose();
+	expectedEventsCount++;
+	expectedTabsCount --;
+	assertEquals(expectedTabsCount, ctabFolder.getItemCount());
+	assertEquals(ctabFolder.getItemCount(), itemCount.get());
+	assertEquals(expectedEventsCount, callCount.get());
+
+	item2.dispose();
+	expectedEventsCount++;
+	expectedTabsCount --;
+	assertEquals(expectedTabsCount, ctabFolder.getItemCount());
+	assertEquals(ctabFolder.getItemCount(), itemCount.get());
+	assertEquals(expectedEventsCount, callCount.get());
+}
+
+@Test
 public void test_consistency_KeySelection() {
 	List<String> events = new ArrayList<>();
 	createTabFolder(events);
@@ -225,7 +271,8 @@ public void test_checkSize() {
 	shell.open();
 	int folderY = folder.getSize().y;
 	int expectedminHeight = systemImage.getImageData().height + text2.getFont().getFontData()[0].getHeight();
-	assertTrue("\nBug 507611 - CTabFolder is too thin for its actual content. \nCtabFolder height:"+folderY+"\nExpected min:"+expectedminHeight,  folderY > expectedminHeight);
+	assertTrue("\nBug 507611 - CTabFolder is too thin for its actual content. \nCtabFolder height:"
+								+folderY+"\nExpected min:"+expectedminHeight,  folderY > expectedminHeight);
 }
 
 /**
@@ -560,10 +607,12 @@ private void assertTabElementsInLine() {
 	Rectangle maxBound = tabBarElementBounds.get(0);
 	for (Rectangle bound : tabBarElementBounds) {
 		if (bound.height > maxBound.height) {
-			assertTrue("Element at " + maxBound + " is not on line.", bound.y <= maxBound.y && bound.y + bound.height >= maxBound.y + maxBound.height);
+			assertTrue("Element at " + maxBound + " is not on line.",
+					bound.y <= maxBound.y && (bound.y + bound.height) >= (maxBound.y + maxBound.height));
 			maxBound = bound;
 		} else {
-			assertTrue("Element at " + bound + " is not on line.", bound.y >= maxBound.y && bound.y + bound.height <= maxBound.y + maxBound.height);
+			assertTrue("Element at " + bound + " is not on line.",
+					bound.y >= maxBound.y && (bound.y + bound.height) <= (maxBound.y + maxBound.height));
 		}
 	}
 }

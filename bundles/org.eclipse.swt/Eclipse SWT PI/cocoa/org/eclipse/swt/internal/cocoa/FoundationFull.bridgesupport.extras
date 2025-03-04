@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF8"?>
 <signatures swt_gen="mixed">
 	<class name="NSAffineTransform" swt_gen="mixed">
-		<method selector="init" swt_gen="true">
+		<method selector="initWithTransform:" swt_gen="true">
+			<arg swt_gen="true"></arg>
 			<retval swt_gen="true"></retval>
 		</method>
 		<method selector="invert" swt_gen="true">
@@ -965,6 +966,10 @@
 	</class>
 	<class name="NSUserDefaults" swt_gen="mixed">
 		<method selector="objectForKey:" swt_gen="true">
+			<arg swt_gen="true"></arg>
+			<retval swt_gen="true"></retval>
+		</method>
+		<method selector="registerDefaults:" swt_gen="true">
 			<arg swt_gen="true"></arg>
 			<retval swt_gen="true"></retval>
 		</method>

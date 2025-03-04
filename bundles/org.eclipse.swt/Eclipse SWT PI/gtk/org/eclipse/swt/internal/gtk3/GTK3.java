@@ -13,6 +13,8 @@
  *******************************************************************************/
 package org.eclipse.swt.internal.gtk3;
 
+import org.eclipse.swt.internal.gtk.*;
+
 /**
  * This class contains native functions that are present in GTK3 only.
  */
@@ -262,6 +264,12 @@ public class GTK3 {
 	 * @param height cast=(gint *)
 	 */
 	public static final native void gtk_window_get_size(long handle, int[] width, int[] height);
+	/**
+	 * @param window cast=(GtkWindow *)
+	 * @param geometry_widget cast=(GtkWidget *)
+	 * @param geometry flags=no_out
+	 */
+	public static final native void gtk_window_set_geometry_hints(long window, long geometry_widget, GdkGeometry geometry, int geom_mask);
 
 	/* GtkWidget */
 	/** @param widget cast=(GtkWidget *) */
@@ -400,6 +408,20 @@ public class GTK3 {
 	 * @param region cast=(cairo_region_t *)
 	 */
 	public static final native void gtk_widget_input_shape_combine_region(long widget, long region);
+	/** @param widget cast=(GtkWidget *)*/
+	public static final native void gtk_widget_set_clip(long widget, GtkAllocation allocation);
+	/** @param widget cast=(GtkWidget *)*/
+	public static final native void gtk_widget_get_clip(long widget, GtkAllocation allocation);
+	/**
+	 * @param widget cast=(GtkWidget *)
+	 * @param allocation cast=(GtkAllocation *),flags=no_out
+	 */
+	public static final native void gtk_widget_set_allocation(long widget, GtkAllocation allocation);
+	/**
+	 * @param widget cast=(GtkWidget *)
+	 * @param allocation cast=(GtkAllocation *),flags=no_out
+	 */
+	public static final native void gtk_widget_size_allocate(long widget, GtkAllocation allocation);
 
 	/* Drag and Drop API */
 	/**
@@ -573,6 +595,14 @@ public class GTK3 {
 	 * @param tip_text cast=(const gchar *)
 	 */
 	public static final native void gtk_status_icon_set_tooltip_text(long handle, byte[] tip_text);
+	/**
+	 * @method flags=ignore_deprecations
+	 * @param handle cast=(GtkStatusIcon*)
+	 * @param screen cast=(GdkScreen**)
+	 * @param area cast=(GdkRectangle*)
+	 * @param orientation cast=(GtkOrientation*)
+	 */
+	public static final native boolean gtk_status_icon_get_geometry(long handle, long screen, GdkRectangle area, long orientation);
 
 	/* GtkTargetList */
 	/**
@@ -605,8 +635,20 @@ public class GTK3 {
 	 */
 	public static final native void gtk_selection_data_set(long selection_data, long type, int format, long data, int length);
 
-	/* GtkMenu/GtkMenuItem */
+	/* GtkMenu */
+	public static final native long gtk_menu_new();
+	/** @param menu cast=(GtkMenu *) */
+	public static final native void gtk_menu_popdown(long menu);
+	/**
+	 * @param menu cast=(GtkMenu *)
+	 * @param trigger_event cast=(const GdkEvent*)
+	 */
+	public static final native void gtk_menu_popup_at_pointer(long menu, long trigger_event);
+
+	/* GtkMenuBar */
 	public static final native long gtk_menu_bar_new();
+
+	/* GtkMenuItem */
 	/** @param menu_item cast=(GtkMenuItem *) */
 	public static final native long gtk_menu_item_get_submenu(long menu_item);
 	public static final native long gtk_menu_item_new();
@@ -615,22 +657,6 @@ public class GTK3 {
 	 * @param submenu cast=(GtkWidget *)
 	 */
 	public static final native void gtk_menu_item_set_submenu(long menu_item, long submenu);
-	public static final native long gtk_menu_new();
-	/** @param menu cast=(GtkMenu *) */
-	public static final native void gtk_menu_popdown(long menu);
-	/** @param menu_shell cast=(GtkMenuShell *) */
-	public static final native void gtk_menu_shell_deactivate(long menu_shell);
-	/**
-	 * @param menu_shell cast=(GtkMenuShell *)
-	 * @param child cast=(GtkWidget *)
-	 * @param position cast=(gint)
-	 */
-	public static final native void gtk_menu_shell_insert(long menu_shell, long child, int position);
-	/**
-	 * @param menu_shell cast=(GtkMenuShell *)
-	 * @param take_focus cast=(gboolean)
-	 */
-	public static final native void gtk_menu_shell_set_take_focus(long menu_shell, boolean take_focus);
 	/** @param check_menu_item cast=(GtkCheckMenuItem *) */
 	public static final native boolean gtk_check_menu_item_get_active(long check_menu_item);
 	public static final native long gtk_check_menu_item_new();
@@ -644,6 +670,30 @@ public class GTK3 {
 	/** @param group cast=(GSList *) */
 	public static final native long gtk_radio_menu_item_new(long group);
 	public static final native long gtk_separator_menu_item_new();
+	/**
+	 * @param menu cast=(GtkMenu *)
+	 * @param rect_window cast=(GdkWindow *)
+	 * @param rect cast=(GdkRectangle *)
+	 * @param rect_anchor cast=(GdkGravity)
+	 * @param menu_anchor cast=(GdkGravity)
+	 * @param trigger_event cast=(const GdkEvent *)
+	 */
+	public static final native void gtk_menu_popup_at_rect(long menu, long rect_window, GdkRectangle rect, int rect_anchor, int menu_anchor, long trigger_event);
+
+	/* GtkMenuShell */
+	/** @param menu_shell cast=(GtkMenuShell *) */
+	public static final native void gtk_menu_shell_deactivate(long menu_shell);
+	/**
+	 * @param menu_shell cast=(GtkMenuShell *)
+	 * @param child cast=(GtkWidget *)
+	 * @param position cast=(gint)
+	 */
+	public static final native void gtk_menu_shell_insert(long menu_shell, long child, int position);
+	/**
+	 * @param menu_shell cast=(GtkMenuShell *)
+	 * @param take_focus cast=(gboolean)
+	 */
+	public static final native void gtk_menu_shell_set_take_focus(long menu_shell, boolean take_focus);
 
 	/* GtkToolbar */
 	public static final native long gtk_toolbar_new();
@@ -871,4 +921,160 @@ public class GTK3 {
 	 * @param context cast=(GtkStyleContext *)
 	 */
 	public static final native void gtk_style_context_invalidate(long context);
+	/**
+	 * @param screen cast=(GdkScreen *)
+	 * @param provider cast=(GtkStyleProvider *)
+	 * @param priority cast=(guint)
+	 */
+	public static final native void gtk_style_context_add_provider_for_screen(long screen, long provider, int priority);
+	/**
+	 * @method flags=ignore_deprecations
+	 * @param context cast=(GtkStyleContext *)
+	 * @param state cast=(GtkStateFlags)
+	 */
+	/* [GTK3; 3.8 deprecated, replaced] */
+	public static final native long gtk_style_context_get_font(long context, int state);
+	/** @param context cast=(GtkStyleContext *) */
+	public static final native long gtk_style_context_get_parent(long context);
+	/**
+	 * @param context cast=(GtkStyleContext *)
+	 * @param state cast=(GtkStateFlags)
+	 * @param property cast=(const gchar *),flags=no_out
+	 * @param terminator cast=(const gchar *),flags=sentinel
+	 */
+	public static final native void gtk_style_context_get(long context, int state, byte [] property, long [] value, long terminator);
+	/**
+	 * @param context cast=(GtkStyleContext *)
+	 * @param state cast=(GtkStateFlags)
+	 * @param padding cast=(GtkBorder *),flags=no_in
+	 */
+	public static final native void gtk_style_context_get_padding(long context, int state, GtkBorder padding);
+	/**
+	 * @param context cast=(GtkStyleContext *)
+	 * @param state cast=(GtkStateFlags)
+	 * @param color cast=(GdkRGBA *)
+	 */
+	public static final native void gtk_style_context_get_color(long context, int state, GdkRGBA color);
+	/**
+	 * @param context cast=(GtkStyleContext *)
+	 * @param state cast=(GtkStateFlags)
+	 * @param padding cast=(GtkBorder *),flags=no_in
+	 */
+	public static final native void gtk_style_context_get_border(long context, int state, GtkBorder padding);
+
+	/* GtkLabel */
+	/**
+	 * @param label cast=(GtkLabel *)
+	 * @param wrap cast=(gboolean)
+	 */
+	public static final native void gtk_label_set_line_wrap(long label, boolean wrap);
+	/**
+	 * @param label cast=(GtkLabel *)
+	 * @param wrap_mode cast=(PangoWrapMode)
+	 */
+	public static final native void gtk_label_set_line_wrap_mode(long label, int wrap_mode);
+
+	/* GtkTextView */
+	/**
+	 * @param text_view cast=(GtkTextView *)
+	 * @param win cast=(GtkTextWindowType)
+	 */
+	public static final native long gtk_text_view_get_window(long text_view, int win);
+
+	/* GtkToggleButton */
+	/**
+	 * @param toggle_button cast=(GtkToggleButton *)
+	 * @param setting cast=(gboolean)
+	 */
+	public static final native void gtk_toggle_button_set_inconsistent(long toggle_button, boolean setting);
+
+	/* GtkTreeView */
+	/** @param tree_view cast=(GtkTreeView *) */
+	public static final native long gtk_tree_view_get_bin_window(long tree_view);
+
+	/* GtkTreeViewColumn */
+	/**
+	 * @param tree_column cast=(GtkTreeViewColumn *)
+	 * @param cell_area cast=(GdkRectangle *),flags=no_in
+	 * @param x_offset cast=(gint *)
+	 * @param y_offset cast=(gint *)
+	 * @param width cast=(gint *)
+	 * @param height cast=(gint *)
+	 */
+	public static final native void gtk_tree_view_column_cell_get_size(long tree_column, GdkRectangle cell_area, int[] x_offset, int[] y_offset, int[] width, int[] height);
+
+	/* GdkWindow */
+	/**
+	 * @param parent cast=(GdkWindow *)
+	 * @param attributes flags=no_out
+	 */
+	public static final native long gdk_window_new(long parent, GdkWindowAttr attributes, int attributes_mask);
+
+	/* Memmove */
+	/**
+	 * @param dest cast=(void *),flags=no_in
+	 * @param src cast=(const void *)
+	 * @param size cast=(size_t)
+	 */
+	public static final native void memmove(GdkEventButton dest, long src, long size);
+	/**
+	 * @param dest cast=(void *),flags=no_in
+	 * @param src cast=(const void *)
+	 * @param size cast=(size_t)
+	 */
+	public static final native void memmove(GdkEventCrossing dest, long src, long size);
+	/**
+	 * @param dest cast=(void *),flags=no_in
+	 * @param src cast=(const void *)
+	 * @param size cast=(size_t)
+	 */
+	public static final native void memmove(GdkEventFocus dest, long src, long size);
+	/**
+	 * @param dest cast=(void *),flags=no_in
+	 * @param src cast=(const void *)
+	 * @param size cast=(size_t)
+	 */
+	public static final native void memmove(GdkEventKey dest, long src, long size);
+	/**
+	 * @param dest cast=(void *),flags=no_in
+	 * @param src cast=(const void *)
+	 * @param size cast=(size_t)
+	 */
+	public static final native void memmove(GdkEventMotion dest, long src, long size);
+	/**
+	 * @param dest cast=(void *),flags=no_in
+	 * @param src cast=(const void *)
+	 * @param size cast=(size_t)
+	 */
+	public static final native void memmove(GdkEventWindowState dest, long src, long size);
+	/**
+	 * @param dest cast=(void *)
+	 * @param src cast=(const void *),flags=no_out
+	 * @param size cast=(size_t)
+	 */
+	public static final native void memmove(long dest, GdkEventButton src, long size);
+	/**
+	 * @param dest cast=(void *)
+	 * @param src cast=(const void *),flags=no_out
+	 * @param size cast=(size_t)
+	 */
+	public static final native void memmove(long dest, GdkEventKey src, long size);
+	/**
+	 * @param dest cast=(void *)
+	 * @param src cast=(const void *),flags=no_out
+	 * @param size cast=(size_t)
+	 */
+	public static final native void memmove(long dest, GtkTargetEntry src, long size);
+
+	/* Sizeof */
+	public static final native int GtkTargetEntry_sizeof();
+	public static final native int GdkEvent_sizeof();
+	public static final native int GdkEventButton_sizeof();
+	public static final native int GdkEventCrossing_sizeof();
+	public static final native int GdkEventFocus_sizeof();
+	public static final native int GdkEventKey_sizeof();
+	public static final native int GdkEventMotion_sizeof();
+	public static final native int GdkEventWindowState_sizeof();
+	public static final native int GdkGeometry_sizeof();
+	public static final native int GdkWindowAttr_sizeof();
 }

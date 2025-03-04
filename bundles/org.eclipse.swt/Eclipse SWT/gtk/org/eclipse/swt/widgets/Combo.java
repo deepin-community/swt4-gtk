@@ -70,9 +70,8 @@ public class Combo extends Composite {
 	int fixStart = -1, fixEnd = -1;
 	String [] items = new String [0];
 	int indexSelected;
-	GdkRGBA background, buttonBackground;
-	String cssButtonBackground, cssButtonForeground = " ";
-	long buttonProvider, comboProvider;
+	GdkRGBA background, foreground;
+	long cssProvider;
 	boolean firstDraw = true;
 	boolean unselected = true, fitModelToggled = false;
 	/**
@@ -226,8 +225,7 @@ private void gtk_combo_box_insert(String string, int index) {
  *  https://raw.githubusercontent.com/gnome-design-team/gnome-mockups/master/theming/widgets/combobox-replacements.png     // mockup screen shot.
  *  - So probably this workaround should be removed in Gtk4 port. Feel free to validate via Bug489640_SlowCombo and Bug489640_SlowComboSingleItem test snippets.</p>
  *
- * <p>CSS note: Do not use the CSS 'appears-as-list' style as done in:
- *   https://git.eclipse.org/r/#/c/117681/6/bundles/org.eclipse.swt/Eclipse+SWT/gtk/org/eclipse/swt/widgets/Combo.java
+ * <p>CSS note: Do not use the CSS 'appears-as-list' style.
  *   It's a poorly working hack. If list has more than +-1000 entries, then we get visual cheese and jvm crashes. </p>
  */
 private void gtk_combo_box_toggle_wrap (boolean wrap) {
@@ -488,7 +486,7 @@ Point computeNativeSize (long h, int wHint, int hHint, boolean changed) {
 	 * This node can specify additional padding; if this padding is not taken into account,
 	 * Not all of the combo items text will be displayed. Some letters will be cut off, depending on how high the padding is set.
 	 */
-	if ((style & SWT.READ_ONLY) != 0 && !GTK.GTK4 && GTK.GTK_VERSION >= OS.VERSION(3, 22, 0)) {
+	if ((style & SWT.READ_ONLY) != 0 && !GTK.GTK4) {
 		GtkBorder buttonPadding = new GtkBorder();
 		long context = GTK.gtk_widget_get_style_context (buttonHandle);
 		int stateFlag = GTK.gtk_widget_get_state_flags(buttonHandle);
@@ -558,6 +556,7 @@ void createHandle (int index) {
 		imContext = OS.imContextLast();
 	}
 
+	//TODO: popupHandle is currently not mapped in GTK4, need to see if that is an issue.
 	if (GTK.GTK4) {
 		OS.swt_fixed_add(fixedHandle, handle);
 	} else {
@@ -636,10 +635,6 @@ GdkRGBA defaultBackground () {
 	return display.getSystemColor(SWT.COLOR_LIST_BACKGROUND).handle;
 }
 
-GdkRGBA defaultButtonBackground () {
-	return display.getSystemColor(SWT.COLOR_WIDGET_BACKGROUND).handle;
-}
-
 @Override
 void deregister () {
 	super.deregister ();
@@ -652,7 +647,7 @@ void deregister () {
 }
 
 @Override
-boolean filterKey (int keyval, long event) {
+boolean filterKey (long event) {
 	int time = GDK.gdk_event_get_time (event);
 	if (time != lastEventTime) {
 		lastEventTime = time;
@@ -820,7 +815,15 @@ long findMenuHandle() {
 	*/
 	long result = 0;
 
-	if (popupHandle != 0) {
+	if(GTK.GTK4) {
+		for (long child = GTK4.gtk_widget_get_first_child(handle); child != 0; child = GTK4.gtk_widget_get_next_sibling(child)) {
+			String name = display.gtk_widget_get_name(child);
+			if (name != null && name.equals("GtkTreePopover")) {
+				result = GTK4.gtk_widget_get_first_child(child);
+				break;
+			}
+		}
+	} else if(popupHandle != 0) {
 		GTK3.gtk_container_forall(popupHandle, display.allChildrenProc, 0);
 		if (display.allChildren != 0) {
 			long list = display.allChildren;
@@ -928,8 +931,8 @@ void hookEvents(long [] handles) {
 			if (GTK.GTK4) {
 				long motionController = GTK4.gtk_event_controller_motion_new();
 				GTK4.gtk_widget_add_controller(eventHandle, motionController);
-				OS.g_signal_connect (motionController, OS.motion, display.enterMotionScrollProc, MOTION);
-				OS.g_signal_connect (motionController, OS.motion, display.enterMotionScrollProc, MOTION_INVERSE);
+				OS.g_signal_connect (motionController, OS.motion, display.enterMotionProc, MOTION);
+				OS.g_signal_connect (motionController, OS.motion, display.enterMotionProc, MOTION_INVERSE);
 
 				long gestureController = GTK4.gtk_gesture_click_new();
 				GTK4.gtk_widget_add_controller(eventHandle, gestureController);
@@ -1142,6 +1145,14 @@ GdkRGBA getContextBackgroundGdkRGBA () {
 		return background;
 	}
 	return defaultBackground();
+}
+
+@Override
+GdkRGBA getContextColorGdkRGBA () {
+	if (foreground != null) {
+		return foreground;
+	}
+	return display.COLOR_WIDGET_FOREGROUND_RGBA;
 }
 
 /**
@@ -1560,7 +1571,14 @@ long gtk_commit (long imContext, long text) {
 @Override
 long gtk_delete_text (long widget, long start_pos, long end_pos) {
 	if (!hooks (SWT.Verify) && !filters (SWT.Verify)) return 0;
-	long ptr = GTK3.gtk_entry_get_text (entryHandle);
+	long ptr;
+	if(GTK.GTK4) {
+		long bufferPtr = GTK4.gtk_entry_get_buffer(entryHandle);
+		ptr = GTK.gtk_entry_buffer_get_text(bufferPtr);
+	}
+	else {
+		ptr = GTK3.gtk_entry_get_text(entryHandle);
+	}
 	if (end_pos == -1) end_pos = OS.g_utf8_strlen (ptr, -1);
 	int start = (int)OS.g_utf8_offset_to_utf16_offset (ptr, start_pos);
 	int end = (int)OS.g_utf8_offset_to_utf16_offset (ptr, end_pos);
@@ -1595,6 +1613,17 @@ void adjustChildClipping (long widget) {
 	 */
 	if (widget == cellHandle && (style & SWT.READ_ONLY) != 0 && !unselected) {
 		/*
+		 * Currently in GTK4, when a new combo is created it does not follow setBounds.
+		 * This could be the reason gtk_cell_view_set_fit_model does not work like in GTK3.
+		 * This bug will need to be revisited once setBounds is working again.
+		 * See bug 567215
+		 */
+		if(GTK.GTK4) {
+			super.adjustChildClipping(widget);
+			return;
+		}
+
+		/*
 		 * Set "fit-model" mode for READ_ONLY Combos on GTK3.20+ to false.
 		 * This means the GtkCellView rendering the text can be set to
 		 * a size other than the maximum. See bug 539367.
@@ -1609,7 +1638,7 @@ void adjustChildClipping (long widget) {
 		GTK.gtk_widget_get_allocation(cellHandle, cellViewAllocation);
 
 		cellViewAllocation.width = (iconAllocation.x - iconAllocation.width);
-		GTK.gtk_widget_set_clip(widget, cellViewAllocation);
+		GTK3.gtk_widget_set_clip(widget, cellViewAllocation);
 		return;
 	} else {
 		super.adjustChildClipping(widget);
@@ -1702,7 +1731,7 @@ long gtk_event_after (long widget, long gdkEvent)  {
 					focusIn[0] = GDK.gdk_focus_event_get_in(gdkEvent);
 				} else {
 					GdkEventFocus gdkEventFocus = new GdkEventFocus ();
-					OS.memmove (gdkEventFocus, gdkEvent, GdkEventFocus.sizeof);
+					GTK3.memmove (gdkEventFocus, gdkEvent, GdkEventFocus.sizeof);
 					focusIn[0] = gdkEventFocus.in != 0;
 				}
 				if (focusIn[0]) {
@@ -1732,7 +1761,15 @@ long gtk_insert_text (long widget, long new_text, long new_text_length, long pos
 	String oldText = new String (Converter.mbcsToWcs (buffer));
 	int [] pos = new int [1];
 	C.memmove (pos, position, 4);
-	long ptr = GTK3.gtk_entry_get_text (entryHandle);
+	long ptr;
+	if(GTK.GTK4) {
+		long bufferPtr = GTK4.gtk_entry_get_buffer(entryHandle);
+		ptr = GTK.gtk_entry_buffer_get_text(bufferPtr);
+	}
+	else {
+		ptr = GTK3.gtk_entry_get_text (entryHandle);
+	}
+
 	if (pos [0] == -1) pos [0] = (int)OS.g_utf8_strlen (ptr, -1);
 	int start = (int)OS.g_utf8_offset_to_utf16_offset (ptr, pos [0]);
 	String newText = verifyText (oldText, start, start);
@@ -1844,6 +1881,15 @@ long gtk_selection_done(long menushell) {
 
 @Override
 long gtk_style_updated (long widget) {
+	/*
+	 * Legacy code from GTK2, probably it can already be removed.
+	 * It seems to deal with the case when Combo has 'appears-as-list' style,
+	 * which causes it to re-create (once) child controls in GTK's
+	 * 'gtk_combo_box_check_appearance()'. However, 'appears-as-list' style is
+	 * very broken, causing various crashes etc. To my understanding, no GTK3
+	 * themes currently use it (search for '-GtkComboBox-appears-as-list:').
+	 * Also, it was completely removed in GTK4 in commit fdc0c642 (2016-11-11).
+	 */
 	setButtonHandle (findButtonHandle ());
 	setMenuHandle (findMenuHandle ());
 	return super.gtk_style_updated (widget);
@@ -1962,17 +2008,26 @@ void releaseHandle () {
 	super.releaseHandle ();
 	if (menuHandle != 0) {
 		OS.g_object_unref (menuHandle);
+		menuHandle = 0;
 	}
 	if (buttonHandle != 0) {
 		OS.g_object_unref (buttonHandle);
+		buttonHandle = 0;
 	}
 	if (buttonBoxHandle != 0) {
 		OS.g_object_unref (buttonBoxHandle);
+		buttonBoxHandle = 0;
 	}
 	if (cellBoxHandle != 0) {
 		OS.g_object_unref (cellBoxHandle);
+		cellBoxHandle = 0;
 	}
-	cellBoxHandle = buttonBoxHandle = menuHandle = buttonHandle = entryHandle = 0;
+	entryHandle = 0;
+
+	if (cssProvider != 0) {
+		OS.g_object_unref(cssProvider);
+		cssProvider = 0;
+	}
 }
 
 @Override
@@ -2218,120 +2273,10 @@ public void select (int index) {
 	unselected = false;
 }
 
-void setButtonBackgroundGdkRGBA (GdkRGBA rgba) {
-	if (rgba == null) {
-		buttonBackground = defaultButtonBackground();
-	} else {
-		buttonBackground = rgba;
-	}
-	String color = display.gtk_rgba_to_css_string (buttonBackground);
-	String css = "* {background: " + color + ";}\n";
-	cssButtonBackground = css;
-	String finalCss = display.gtk_css_create_css_color_string (cssButtonBackground, cssButtonForeground, SWT.BACKGROUND);
-	long buttonContext = GTK.gtk_widget_get_style_context(buttonHandle);
-	if (buttonProvider == 0) {
-		buttonProvider = GTK.gtk_css_provider_new();
-		GTK.gtk_style_context_add_provider(buttonContext, buttonProvider, GTK.GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-		OS.g_object_unref(buttonProvider);
-	}
-	if (GTK.GTK4) {
-		GTK4.gtk_css_provider_load_from_data (buttonProvider, Converter.wcsToMbcs (finalCss, true), -1);
-	} else {
-		GTK3.gtk_css_provider_load_from_data (buttonProvider, Converter.wcsToMbcs (finalCss, true), -1, null);
-	}
-}
-
-void setButtonForegroundGdkRGBA (GdkRGBA rgba) {
-	GdkRGBA toSet;
-	if (rgba != null) {
-		toSet = rgba;
-	} else {
-		toSet = display.COLOR_WIDGET_FOREGROUND_RGBA;
-	}
-	String color = display.gtk_rgba_to_css_string(toSet);
-	String css = "* {color: " + color + ";}\n";
-	cssButtonForeground = css;
-	String finalCss = display.gtk_css_create_css_color_string(cssButtonBackground, cssButtonForeground, SWT.FOREGROUND);
-	long buttonContext = GTK.gtk_widget_get_style_context(buttonHandle);
-	if (buttonProvider == 0) {
-		buttonProvider = GTK.gtk_css_provider_new();
-		GTK.gtk_style_context_add_provider(buttonContext, buttonProvider, GTK.GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-		OS.g_object_unref(buttonProvider);
-	}
-	if (GTK.GTK4) {
-		GTK4.gtk_css_provider_load_from_data (provider, Converter.wcsToMbcs (finalCss, true), -1);
-	} else {
-		GTK3.gtk_css_provider_load_from_data (provider, Converter.wcsToMbcs (finalCss, true), -1, null);
-	}
-}
-
 @Override
 void setBackgroundGdkRGBA (long context, long handle, GdkRGBA rgba) {
-	if (rgba == null) {
-		background = defaultBackground();
-	} else {
-		background = rgba;
-	}
-
-	String color, menuColor;
-	if (rgba != null) {
-		color = display.gtk_rgba_to_css_string (rgba);
-		menuColor = color;
-	} else {
-		if ((style & SWT.READ_ONLY) != 0) {
-			color = display.gtk_rgba_to_css_string (display.COLOR_WIDGET_BACKGROUND_RGBA);
-		} else {
-			color = display.gtk_rgba_to_css_string (display.COLOR_LIST_BACKGROUND_RGBA);
-		}
-
-		menuColor = display.gtk_rgba_to_css_string (display.COLOR_LIST_BACKGROUND_RGBA);
-	}
-
-	// CSS to be parsed for various widgets within Combo
-	String css = "* {background: " + color + ";}\n";
-	// Set the selected background color
-	GdkRGBA selectedBackground = display.getSystemColor(SWT.COLOR_LIST_SELECTION).handle;
-	GdkRGBA selectedForeground = display.getSystemColor(SWT.COLOR_LIST_SELECTION_TEXT).handle;
-	css += "entry selection {background-color: " + display.gtk_rgba_to_css_string(selectedBackground) + ";}\n";
-	css += "entry selection {color: " + display.gtk_rgba_to_css_string(selectedForeground) + ";}";
-
-	// Cache background color
-	cssBackground = css;
-	String finalCss = display.gtk_css_create_css_color_string (cssBackground, cssForeground, SWT.BACKGROUND);
-	if (entryHandle == 0 || (style & SWT.READ_ONLY) != 0) {
-		// For read only Combos, we can just apply the background CSS to the GtkToggleButton.
-		gtk_css_provider_load_from_css (GTK.gtk_widget_get_style_context(buttonHandle), finalCss);
-	} else {
-		// GtkEntry and GtkToggleButton needs to be themed separately with different
-		// providers for coherent background. Similar to Tree/Table headers.
-		gtk_css_provider_load_from_css (GTK.gtk_widget_get_style_context(entryHandle), finalCss);
-		setButtonBackgroundGdkRGBA (rgba);
-	}
-
-	String menuCss = "menu { background: " + menuColor + ";}";
-	if (GTK.GTK4) {
-		GTK4.gtk_css_provider_load_from_data(getComboProvider(), Converter.wcsToMbcs(menuCss, true), -1);
-	} else {
-		GTK3.gtk_css_provider_load_from_data(getComboProvider(), Converter.wcsToMbcs(menuCss, true), -1, null);
-	}
-
-}
-
-long getComboProvider() {
-	if (comboProvider == 0) {
-		comboProvider = GTK.gtk_css_provider_new();
-		GTK.gtk_style_context_add_provider(GTK.gtk_widget_get_style_context(menuHandle), comboProvider, GTK.GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-		OS.g_object_unref(comboProvider);
-	}
-
-	return comboProvider;
-}
-
-@Override
-void setBackgroundGdkRGBA (GdkRGBA rgba) {
-	super.setBackgroundGdkRGBA(rgba);
-	if (entryHandle != 0) setBackgroundGdkRGBA (entryHandle, rgba);
-	setBackgroundGdkRGBA (fixedHandle, rgba);
+	background = rgba;
+	updateCss();
 }
 
 @Override
@@ -2389,15 +2334,11 @@ void setFontDescription (long font) {
 }
 
 @Override
-void setForegroundGdkRGBA (GdkRGBA rgba) {
-	if (entryHandle != 0) {
-		setForegroundGdkRGBA (entryHandle, rgba);
-	}
-	if ((style & SWT.READ_ONLY) == 0 && buttonHandle != 0) {
-		setButtonForegroundGdkRGBA (rgba);
-	}
-	OS.g_object_set (textRenderer, OS.foreground_rgba, rgba, 0);
-	super.setForegroundGdkRGBA(rgba);
+void setForegroundGdkRGBA (long handle, GdkRGBA rgba) {
+	OS.g_object_set(textRenderer, OS.foreground_rgba, rgba, 0);
+
+	foreground = rgba;
+	updateCss();
 }
 
 @Override
@@ -2419,11 +2360,11 @@ void setInitialBounds () {
 		allocation.y = 0;
 		GTK.gtk_widget_set_visible(topHandle, true);
 		if (GTK.GTK4) {
-			GTK.gtk_widget_size_allocate (topHandle, allocation, -1);
+			GTK4.gtk_widget_size_allocate (topHandle, allocation, -1);
 		} else {
 			// Prevent GTK+ allocation warnings, preferred size should be retrieved before setting allocation size.
 			GTK.gtk_widget_get_preferred_size(topHandle, null, null);
-			GTK.gtk_widget_set_allocation(topHandle, allocation);
+			GTK3.gtk_widget_set_allocation(topHandle, allocation);
 		}
 	} else {
 		super.setInitialBounds();
@@ -2546,7 +2487,6 @@ void setOrientation (boolean create) {
 /**
  * Sets the orientation of the receiver, which must be one
  * of the constants <code>SWT.LEFT_TO_RIGHT</code> or <code>SWT.RIGHT_TO_LEFT</code>.
- * <p>
  *
  * @param orientation new orientation style
  *
@@ -2691,9 +2631,9 @@ public void setTextLimit (int limit) {
 }
 
 @Override
-void setToolTipText (Shell shell, String newString) {
-	if (entryHandle != 0) shell.setToolTipText (entryHandle, newString);
-	if (buttonHandle != 0) shell.setToolTipText (buttonHandle, newString);
+void setToolTipText(Shell shell, String newString) {
+	if (entryHandle != 0) setToolTipText(entryHandle, newString);
+	if (buttonHandle != 0) setToolTipText(buttonHandle, newString);
 }
 
 /**
@@ -2749,6 +2689,68 @@ boolean translateTraversal (long event) {
 		}
 	}
 	return super.translateTraversal (event);
+}
+
+void updateCss() {
+	if (cssProvider == 0) {
+		cssProvider = GTK.gtk_css_provider_new();
+
+		if (menuHandle != 0) {
+			long context = GTK.gtk_widget_get_style_context(menuHandle);
+			GTK.gtk_style_context_add_provider(context, cssProvider, GTK.GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+		}
+
+		if (buttonHandle != 0) {
+			long context = GTK.gtk_widget_get_style_context(buttonHandle);
+			GTK.gtk_style_context_add_provider(context, cssProvider, GTK.GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+		}
+
+		if (entryHandle != 0) {
+			long context = GTK.gtk_widget_get_style_context(entryHandle);
+			GTK.gtk_style_context_add_provider(context, cssProvider, GTK.GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+		}
+	}
+
+	StringBuilder css = new StringBuilder();
+
+	// Deal with background
+	if (background != null) {
+		final String colorString = display.gtk_rgba_to_css_string(background);
+
+		/*
+		 * Use 'background:' instead of 'background-color:' to also override
+		 * any 'background-image:'. For example, Ubuntu's Yaru theme has
+		 * 'background-image:' for 'GtkToggleButton' used in READ_ONLY combo.
+		 */
+		css.append("* {background: " + colorString + ";}\n");
+		css.append("menu {background: " + colorString + ";}\n");
+
+		/*
+		 * Setting background color for '*' also affects selection background,
+		 * making it hard to see selected text. Fix this by forcing selection
+		 * colors to reasonable ones. A better fix would be to list affected
+		 * classes explicitly instead of using '*'. If you're doing this,
+		 * please also compare screenshots of snippet from Bug 570502.
+		 */
+		final String clrSelectionBack = display.gtk_rgba_to_css_string(display.COLOR_LIST_SELECTION_RGBA);
+		final String clrSelectionFore = display.gtk_rgba_to_css_string(display.COLOR_LIST_SELECTION_TEXT_RGBA);
+		css.append("entry selection {background-color: " + clrSelectionBack + ";}\n");
+		css.append("entry selection {color: " + clrSelectionFore + ";}\n");
+	}
+
+	// Deal with foreground
+	if (foreground != null) {
+		final String colorString = display.gtk_rgba_to_css_string(foreground);
+
+		css.append("* {color: " + colorString + ";}\n");
+	}
+
+	// Update CSS provider
+	if (GTK.GTK4) {
+		GTK4.gtk_css_provider_load_from_data (cssProvider, Converter.wcsToMbcs (css.toString(), true), -1);
+	} else {
+		GTK3.gtk_css_provider_load_from_data (cssProvider, Converter.wcsToMbcs (css.toString(), true), -1, null);
+	}
 }
 
 String verifyText (String string, int start, int end) {

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2003, 2021 IBM Corporation and others.
+ * Copyright (c) 2003, 2022 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -104,8 +104,7 @@ public Browser (Composite parent, int style) {
 	String errMsg = " because there is no underlying browser available.\n";
 	switch (SWT.getPlatform()) {
 	case "gtk":
-		errMsg = errMsg + "Please ensure that WebKit with its GTK 3.x bindings is installed (WebKit2 API level is preferred)."
-				+ " Additionally, please note that GTK4 does not currently have Browser support.\n";
+		errMsg = errMsg + "Please ensure that WebKit with its GTK 3.x/4.x bindings is installed.";
 		break;
 	case "cocoa":
 		errMsg = errMsg + "SWT failed to load the WebKit library.\n";
@@ -197,7 +196,7 @@ static int checkStyle(int style) {
 		}
 	}
 	/* If particular backend isn't specified, use the value from the system property. */
-	if ((style & (SWT.WEBKIT | SWT.CHROMIUM | SWT.EDGE)) == 0) {
+	if ((style & (SWT.WEBKIT | SWT.EDGE)) == 0) {
 		style |= DefaultType;
 	}
 	if ("win32".equals (platform) && (style & SWT.EDGE) != 0) { //$NON-NLS-1$
@@ -252,7 +251,7 @@ public static String getCookie (String name, String url) {
  * Example value strings:
  * <code>foo=bar</code> (basic session cookie)
  * <code>foo=bar; path=/; domain=.eclipse.org</code> (session cookie)
- * <code>foo=bar; expires=Thu, 01-Jan-2030 00:00:01 GMT</code> (persistent cookie)
+ * <code>foo=bar; expires=Tue, 01-Jan-2030 00:00:01 GMT</code> (persistent cookie)
  * <code>foo=; expires=Thu, 01-Jan-1970 00:00:01 GMT</code> (deletes cookie <code>foo</code>)
  *
  * @param value the cookie value

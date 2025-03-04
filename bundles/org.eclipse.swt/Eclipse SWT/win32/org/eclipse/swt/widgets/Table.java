@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2020 IBM Corporation and others.
+ * Copyright (c) 2000, 2022 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -84,7 +84,7 @@ public class Table extends Composite {
 	TableColumn sortColumn;
 	RECT focusRect;
 	boolean [] columnVisible;
-	long headerToolTipHandle, hwndHeader;
+	long headerToolTipHandle, hwndHeader, itemToolTipHandle;
 	boolean ignoreCustomDraw, ignoreDrawForeground, ignoreDrawBackground, ignoreDrawFocus, ignoreDrawSelection, ignoreDrawHot;
 	boolean customDraw, dragStarted, explorerTheme, firstColumnImage, fixScrollWidth, tipRequested, wasSelected, wasResized, painted;
 	boolean ignoreActivate, ignoreSelect, ignoreShrink, ignoreResize, ignoreColumnMove, ignoreColumnResize, fullRowSelect, settingItemHeight;
@@ -1503,6 +1503,7 @@ void createHandle () {
 
 	/* Get the header window handle */
 	hwndHeader = OS.SendMessage (handle, OS.LVM_GETHEADER, 0, 0);
+	maybeEnableDarkSystemTheme(hwndHeader);
 
 	/* Set the checkbox image list */
 	if ((style & SWT.CHECK) != 0) {
@@ -1559,9 +1560,9 @@ void createHandle () {
 	if ((style & SWT.RIGHT_TO_LEFT) != 0) {
 		int bits2 = OS.GetWindowLong (hwndHeader, OS.GWL_EXSTYLE);
 		OS.SetWindowLong (hwndHeader, OS.GWL_EXSTYLE, bits2 | OS.WS_EX_LAYOUTRTL);
-		long hwndTooltop = OS.SendMessage (handle, OS.LVM_GETTOOLTIPS, 0, 0);
-		int bits3 = OS.GetWindowLong (hwndTooltop, OS.GWL_EXSTYLE);
-		OS.SetWindowLong (hwndTooltop, OS.GWL_EXSTYLE, bits3 | OS.WS_EX_LAYOUTRTL);
+		long hwndTooltip = OS.SendMessage (handle, OS.LVM_GETTOOLTIPS, 0, 0);
+		int bits3 = OS.GetWindowLong (hwndTooltip, OS.GWL_EXSTYLE);
+		OS.SetWindowLong (hwndTooltip, OS.GWL_EXSTYLE, bits3 | OS.WS_EX_LAYOUTRTL);
 	}
 }
 
@@ -1589,6 +1590,7 @@ void createHeaderToolTips () {
 		OS.GetModuleHandle (null),
 		null);
 	if (headerToolTipHandle == 0) error (SWT.ERROR_NO_HANDLES);
+	maybeEnableDarkSystemTheme(headerToolTipHandle);
 	/*
 	* Feature in Windows.  Despite the fact that the
 	* tool tip text contains \r\n, the tooltip will
@@ -3567,7 +3569,7 @@ void sendEraseItemEvent (TableItem item, NMLVCUSTOMDRAW nmcd, long lParam, Event
 					rect.right += EXPLORER_EXTRA;
 					pClipRect.right += EXPLORER_EXTRA;
 				}
-				long hTheme = OS.OpenThemeData (handle, Display.LISTVIEW);
+				long hTheme = OS.OpenThemeData (handle, Display.TREEVIEW);
 				int iStateId = selected ? OS.LISS_SELECTED : OS.LISS_HOT;
 				if (OS.GetFocus () != handle && selected && !drawHot) iStateId = OS.LISS_SELECTEDNOTFOCUS;
 				if (drawDrophilited) iStateId = OS.LISS_SELECTED;
@@ -6311,26 +6313,24 @@ LRESULT WM_HSCROLL (long wParam, long lParam) {
 		* of a table when scrolling, rather than just return
 		* the data for each column when asked.
 		*/
-		if (OS.WIN32_VERSION >= OS.VERSION (6, 0)) {
-			RECT headerRect = new RECT (), rect = new RECT ();
-			OS.GetClientRect (handle, rect);
-			boolean [] visible = new boolean [columnCount];
-			for (int i=0; i<columnCount; i++) {
-				visible [i] = true;
-				headerRect.top = i;
-				headerRect.left = OS.LVIR_BOUNDS;
-				if (OS.SendMessage (handle, OS.LVM_GETSUBITEMRECT, 0, headerRect) != 0) {
-					headerRect.top = rect.top;
-					headerRect.bottom = rect.bottom;
-					visible [i] = OS.IntersectRect(headerRect, rect, headerRect);
-				}
+		RECT headerRect = new RECT (), rect = new RECT ();
+		OS.GetClientRect (handle, rect);
+		boolean [] visible = new boolean [columnCount];
+		for (int i=0; i<columnCount; i++) {
+			visible [i] = true;
+			headerRect.top = i;
+			headerRect.left = OS.LVIR_BOUNDS;
+			if (OS.SendMessage (handle, OS.LVM_GETSUBITEMRECT, 0, headerRect) != 0) {
+				headerRect.top = rect.top;
+				headerRect.bottom = rect.bottom;
+				visible [i] = OS.IntersectRect(headerRect, rect, headerRect);
 			}
-			try {
-				columnVisible = visible;
-				OS.UpdateWindow (handle);
-			} finally {
-				columnVisible = null;
-			}
+		}
+		try {
+			columnVisible = visible;
+			OS.UpdateWindow (handle);
+		} finally {
+			columnVisible = null;
 		}
 	}
 
@@ -6411,26 +6411,24 @@ LRESULT WM_VSCROLL (long wParam, long lParam) {
 		* of a table when scrolling, rather than just return
 		* the data for each column when asked.
 		*/
-		if (OS.WIN32_VERSION >= OS.VERSION (6, 0)) {
-			RECT headerRect = new RECT (), rect = new RECT ();
-			OS.GetClientRect (handle, rect);
-			boolean [] visible = new boolean [columnCount];
-			for (int i=0; i<columnCount; i++) {
-				visible [i] = true;
-				headerRect.top = i;
-				headerRect.left = OS.LVIR_BOUNDS;
-				if (OS.SendMessage (handle, OS.LVM_GETSUBITEMRECT, 0, headerRect) != 0) {
-					headerRect.top = rect.top;
-					headerRect.bottom = rect.bottom;
-					visible [i] = OS.IntersectRect(headerRect, rect, headerRect);
-				}
+		RECT headerRect = new RECT (), rect = new RECT ();
+		OS.GetClientRect (handle, rect);
+		boolean [] visible = new boolean [columnCount];
+		for (int i=0; i<columnCount; i++) {
+			visible [i] = true;
+			headerRect.top = i;
+			headerRect.left = OS.LVIR_BOUNDS;
+			if (OS.SendMessage (handle, OS.LVM_GETSUBITEMRECT, 0, headerRect) != 0) {
+				headerRect.top = rect.top;
+				headerRect.bottom = rect.bottom;
+				visible [i] = OS.IntersectRect(headerRect, rect, headerRect);
 			}
-			try {
-				columnVisible = visible;
-				OS.UpdateWindow (handle);
-			} finally {
-				columnVisible = null;
-			}
+		}
+		try {
+			columnVisible = visible;
+			OS.UpdateWindow (handle);
+		} finally {
+			columnVisible = null;
 		}
 	}
 
@@ -6500,6 +6498,10 @@ LRESULT wmMeasureChild (long wParam, long lParam) {
 LRESULT wmNotify (NMHDR hdr, long wParam, long lParam) {
 	long hwndToolTip = OS.SendMessage (handle, OS.LVM_GETTOOLTIPS, 0, 0);
 	if (hdr.hwndFrom == hwndToolTip) {
+		if (hdr.hwndFrom != itemToolTipHandle) {
+			maybeEnableDarkSystemTheme(hdr.hwndFrom);
+			itemToolTipHandle = hdr.hwndFrom;
+		}
 		LRESULT result = wmNotifyToolTip (hdr, wParam, lParam);
 		if (result != null) return result;
 	}
@@ -6571,20 +6573,13 @@ LRESULT wmNotifyChild (NMHDR hdr, long wParam, long lParam) {
 				* can never be used from a LVN_GETDISPINFO handler. The fix is to
 				* InvalidateRect() passing the bounds for the entire item.
 				*/
-				if (OS.WIN32_VERSION >= OS.VERSION (6, 0)) {
-					RECT rect = new RECT ();
-					rect.left = OS.LVIR_BOUNDS;
-					ignoreCustomDraw = true;
-					long code = OS.SendMessage (handle, OS. LVM_GETITEMRECT, plvfi.iItem, rect);
-					ignoreCustomDraw = false;
-					if (code != 0) OS.InvalidateRect (handle, rect, true);
-					break;
-				} else {
-					if ((style & SWT.VIRTUAL) != 0 && !item.cached) {
-						OS.SendMessage (handle, OS.LVM_REDRAWITEMS, plvfi.iItem, plvfi.iItem);
-						break;
-					}
-				}
+				RECT rect = new RECT ();
+				rect.left = OS.LVIR_BOUNDS;
+				ignoreCustomDraw = true;
+				long code = OS.SendMessage (handle, OS. LVM_GETITEMRECT, plvfi.iItem, rect);
+				ignoreCustomDraw = false;
+				if (code != 0) OS.InvalidateRect (handle, rect, true);
+				break;
 			}
 
 			/*

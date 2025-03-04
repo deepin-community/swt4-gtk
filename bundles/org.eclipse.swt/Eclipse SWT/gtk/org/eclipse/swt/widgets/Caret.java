@@ -40,6 +40,8 @@ import org.eclipse.swt.internal.gtk.*;
  */
 public class Caret extends Widget {
 	Canvas parent;
+	// Table or Tree the parent might be embedded into (also indirectly)
+	Composite embeddedInto;
 	int x, y, width, height;
 	boolean isVisible, isShowing;
 	int blinkRate;
@@ -80,6 +82,14 @@ public Caret (Canvas parent, int style) {
 	super (parent, style);
 	this.parent = parent;
 	createWidget (0);
+	Composite p = parent.getParent();
+	while (p != null) {
+		if (p instanceof Tree || p instanceof Table) {
+			embeddedInto = p;
+			break;
+		}
+		p = p.getParent();
+	}
 }
 
 boolean blinkCaret () {
@@ -102,42 +112,22 @@ void createWidget (int index) {
 boolean drawCaret () {
 	if (parent == null) return false;
 	if (parent.isDisposed ()) return false;
-	if (GTK.GTK_VERSION < OS.VERSION (3, 22, 0)) {
-		long window = parent.paintWindow ();
-		long cairo = GDK.gdk_cairo_create(window);
-		if (cairo == 0) error(SWT.ERROR_NO_HANDLES);
-		Cairo.cairo_set_source_rgba(cairo, 1.0, 1.0, 1.0, 1.0);
-		Cairo.cairo_set_operator(cairo, Cairo.CAIRO_OPERATOR_DIFFERENCE);
-		if (image != null && !image.isDisposed() && image.mask == 0) {
-			long surface = Cairo.cairo_get_target(cairo);
-			int nWidth = 0;
-			switch (Cairo.cairo_surface_get_type(surface)) {
-				case Cairo.CAIRO_SURFACE_TYPE_IMAGE:
-					nWidth = Cairo.cairo_image_surface_get_width(surface);
-					break;
-				case Cairo.CAIRO_SURFACE_TYPE_XLIB:
-					nWidth = Cairo.cairo_xlib_surface_get_width(surface);
-					break;
-			}
-			int nX = x;
-			if ((parent.style & SWT.MIRRORED) != 0) nX = parent.getClientWidth () - nWidth - nX;
-			Cairo.cairo_translate(cairo, nX, y);
-			Cairo.cairo_set_source_surface(cairo, image.surface, 0, 0);
-			Cairo.cairo_paint(cairo);
-		} else {
-			int nWidth = width, nHeight = height;
-			if (nWidth <= 0) nWidth = DEFAULT_WIDTH;
-			int nX = x;
-			if ((parent.style & SWT.MIRRORED) != 0) nX = parent.getClientWidth () - nWidth - nX;
-			Cairo.cairo_rectangle(cairo, nX, y, nWidth, nHeight);
-		}
-		Cairo.cairo_fill(cairo);
-		Cairo.cairo_destroy(cairo);
-		return true;
+	if (embeddedInto != null && !embeddedInto.isDisposed() && isFocusCaret()) {
+		// Draw differently if we are in the embedded cell editor
+		// See Table.setParentGdkResource() and Tree.setParentGdkResource()
+		drawInCellEditor(embeddedInto.paintWindow());
 	} else {
 		GTK.gtk_widget_queue_draw(parent.handle);
-		return true;
 	}
+	return true;
+}
+
+private void drawInCellEditor(long window) {
+	long cairo = GDK.gdk_cairo_create(window);
+	Point pt = display.map(parent, embeddedInto, new Point(0,0));
+	Cairo.cairo_translate (cairo, pt.x, pt.y);
+	parent.drawCaretInFocus(parent.handle, cairo);
+	Cairo.cairo_destroy(cairo);
 }
 
 /**
@@ -339,6 +329,7 @@ void releaseWidget () {
 	}
 	parent = null;
 	image = null;
+	embeddedInto = null;
 }
 
 /**

@@ -267,7 +267,7 @@ boolean fillAccel (ACCEL accel) {
 				if (key == 0) return false;
 				vKey = OS.VkKeyScan ((short) key);
 				if (vKey == -1) {
-					if (key != (int)OS.CharUpper ((short) key)) {
+					if (key != (int)OS.CharUpper (OS.LOWORD (key))) {
 						fVirt = 0;
 					}
 				} else {
@@ -497,11 +497,11 @@ public boolean getSelection () {
  */
 public String getToolTipText () {
 	checkWidget();
-	return (itemToolTip == null) ? null : itemToolTip.getMessage();
+	return (itemToolTip == null || itemToolTip.isDisposed()) ? null : itemToolTip.getMessage();
 }
 
 void hideToolTip () {
-	if (itemToolTip == null) return;
+	if (itemToolTip == null || itemToolTip.isDisposed()) return;
 	itemToolTip.setVisible (false);
 }
 
@@ -767,10 +767,7 @@ public void setID (int id) {
  * <p>
  * Note: This operation is a <em>HINT</em> and is not supported on
  * platforms that do not have this concept (for example, Windows NT).
- * Furthermore, some platforms (such as GTK2), cannot display both
- * a check box and an image at the same time.  Instead, they hide
- * the image and display the check box. Some platforms (such as GTK3)
- * support images alongside check boxes.
+ * Some platforms (such as GTK3) support images alongside check boxes.
  * </p>
  *
  * @param image the image to display on the receiver (may be null)
@@ -783,6 +780,7 @@ public void setID (int id) {
 @Override
 public void setImage (Image image) {
 	checkWidget ();
+	if (this.image == image) return;
 	if ((style & SWT.SEPARATOR) != 0) return;
 	super.setImage (image);
 	MENUITEMINFO info = new MENUITEMINFO ();
@@ -1073,13 +1071,15 @@ public void setToolTipText (String toolTip) {
 	checkWidget ();
 
 	if (toolTip == null && itemToolTip != null) {
-		itemToolTip.setVisible (false);
-		itemToolTip.dispose();
+		 if(!itemToolTip.isDisposed()) {
+			 itemToolTip.setVisible (false);
+			 itemToolTip.dispose();
+		 }
 		itemToolTip = null;
 	}
 
 	if (toolTip == null || toolTip.trim().length() == 0
-			|| (itemToolTip != null && toolTip.equals(itemToolTip.getMessage()))) return;
+			|| (itemToolTip != null && !itemToolTip.isDisposed() && toolTip.equals(itemToolTip.getMessage()))) return;
 
 	if (itemToolTip != null) itemToolTip.dispose();
 	itemToolTip = new MenuItemToolTip (this.getParent().getShell());
@@ -1088,7 +1088,7 @@ public void setToolTipText (String toolTip) {
 }
 
 void showTooltip (int x, int y) {
-	if (itemToolTip == null) return;
+	if (itemToolTip == null || itemToolTip.isDisposed()) return;
 	itemToolTip.setLocationInPixels (x, y);
 	itemToolTip.setVisible (true);
 }
@@ -1213,6 +1213,7 @@ private static final class MenuItemToolTip extends ToolTip {
 
 	public MenuItemToolTip(Shell parent) {
 		super(parent, 0);
+		maybeEnableDarkSystemTheme(hwndToolTip ());
 	}
 
 	@Override

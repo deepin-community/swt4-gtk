@@ -17,6 +17,7 @@ package org.eclipse.swt.widgets;
 import org.eclipse.swt.*;
 import org.eclipse.swt.accessibility.*;
 import org.eclipse.swt.graphics.*;
+import org.eclipse.swt.internal.ExceptionStash;
 import org.eclipse.swt.internal.cocoa.*;
 
 /**
@@ -984,14 +985,19 @@ void reflectScrolledClipView (long id, long sel, long aClipView) {
 
 @Override
 void releaseChildren (boolean destroy) {
-	Control [] children = _getChildren ();
-	for (int i=0; i<children.length; i++) {
-		Control child = children [i];
-		if (child != null && !child.isDisposed ()) {
-			child.release (false);
+	try (ExceptionStash exceptions = new ExceptionStash ()) {
+		for (Control child : _getChildren ()) {
+			if (child == null || child.isDisposed ())
+				continue;
+
+			try {
+				child.release (false);
+			} catch (Error | RuntimeException ex) {
+				exceptions.stash (ex);
+			}
 		}
+		super.releaseChildren (destroy);
 	}
-	super.releaseChildren (destroy);
 }
 
 @Override
@@ -1118,7 +1124,7 @@ public boolean setFocus () {
 	checkWidget ();
 	Control [] children = _getChildren ();
 	for (int i= 0; i < children.length; i++) {
-		if (children [i].setFocus ()) return true;
+		if (children [i].getVisible() && children [i].setFocus ()) return true;
 	}
 	return super.setFocus ();
 }
@@ -1308,6 +1314,11 @@ void updateLayout (boolean all) {
 			children [i].updateLayout (all);
 		}
 	}
+}
+
+@Override
+public String toString() {
+	return super.toString() + " [layout=" + layout + "]";
 }
 
 }

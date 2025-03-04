@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2020 IBM Corporation and others.
+ * Copyright (c) 2000, 2022 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -10,11 +10,13 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Christoph Läubrich - Issue #64 - Integration with java.util.concurrent framework
  *******************************************************************************/
 package org.eclipse.swt.widgets;
 
 import java.net.*;
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.function.*;
 
 import org.eclipse.swt.*;
@@ -102,7 +104,7 @@ import org.eclipse.swt.internal.win32.*;
  * @see <a href="http://www.eclipse.org/swt/">Sample code and further information</a>
  * @noextend This class is not intended to be subclassed by clients.
  */
-public class Display extends Device {
+public class Display extends Device implements Executor {
 
 	/**
 	 * the handle to the OS message queue
@@ -137,13 +139,8 @@ public class Display extends Device {
 	boolean externalEventLoop; // events are dispatched outside SWT, e.g. TrackPopupMenu or DoDragDrop
 
 	/* Widget Table */
-	int freeSlot;
-	int [] indexTable;
-	Control lastControl, lastGetControl;
-	long lastHwnd, lastGetHwnd;
-	Control [] controlTable;
+	private Map<Long, Control> controlByHandle;
 	static final int GROW_SIZE = 1024;
-	static final int SWT_OBJECT_INDEX = OS.GlobalAddAtom (new TCHAR (0, "SWT_OBJECT_INDEX", true)); //$NON-NLS-1$
 
 	/* Startup info */
 	static STARTUPINFO lpStartupInfo;
@@ -154,14 +151,8 @@ public class Display extends Device {
 	}
 
 	/* XP Themes */
-	long hButtonTheme, hEditTheme, hExplorerBarTheme, hScrollBarTheme, hTabTheme;
-	static final char [] BUTTON = new char [] {'B', 'U', 'T', 'T', 'O', 'N', 0};
-	static final char [] EDIT = new char [] {'E', 'D', 'I', 'T', 0};
+	long hButtonTheme, hButtonThemeDark, hEditTheme, hExplorerBarTheme, hScrollBarTheme, hScrollBarThemeDark, hTabTheme;
 	static final char [] EXPLORER = new char [] {'E', 'X', 'P', 'L', 'O', 'R', 'E', 'R', 0};
-	static final char [] EXPLORERBAR = new char [] {'E', 'X', 'P', 'L', 'O', 'R', 'E', 'R', 'B', 'A', 'R', 0};
-	static final char [] SCROLLBAR = new char [] {'S', 'C', 'R', 'O', 'L', 'L', 'B', 'A', 'R', 0};
-	static final char [] LISTVIEW = new char [] {'L', 'I', 'S', 'T', 'V', 'I', 'E', 'W', 0};
-	static final char [] TAB = new char [] {'T', 'A', 'B', 0};
 	static final char [] TREEVIEW = new char [] {'T', 'R', 'E', 'E', 'V', 'I', 'E', 'W', 0};
 	/* Emergency switch to be used in case of regressions. Not supposed to be changed when app is running. */
 	static final boolean disableCustomThemeTweaks = Boolean.valueOf(System.getProperty("org.eclipse.swt.internal.win32.disableCustomThemeTweaks")); //$NON-NLS-1$
@@ -169,7 +160,8 @@ public class Display extends Device {
 	 * Changes Windows theme to 'DarkMode_Explorer' for Controls that can benefit from it.
 	 * Effects as of Windows 10 version 1909:<br>
 	 * <ul>
-	 *   <li>Dark scrollbars - this is the most important change for many applications.</li>
+	 *   <li>Button - default background/foreground colors</li>
+	 *   <li>Scrollbars in controls tha have them - this is the most important change for many applications.</li>
 	 *   <li>Tree - dark theme compatible expander icon.</li>
 	 *   <li>Tree - dark theme compatible colors for selected and hovered items.</li>
 	 *   <li>The list is not exhaustive. Also, effects can change, because Windows dark theme is not yet official.</li>
@@ -183,6 +175,16 @@ public class Display extends Device {
 	 */
 	static final String USE_DARKMODE_EXPLORER_THEME_KEY = "org.eclipse.swt.internal.win32.useDarkModeExplorerTheme";
 	boolean useDarkModeExplorerTheme;
+	/**
+	 * Sets Shell titles to match theme selected in Windows. That is, dark is system is dark.
+	 * Limitations:<br>
+	 * <ul>
+	 *   <li>Only available since Win10.</li>
+	 *   <li>Does not affect already created Shells.</li>
+	 * </ul>
+	 */
+	static final String USE_SHELL_TITLE_COLORING = "org.eclipse.swt.internal.win32.useShellTitleColoring";
+	boolean useShellTitleColoring;
 	/**
 	 * Configures background/foreground colors of Menu(SWT.BAR).<br>
 	 * Side effects:
@@ -256,6 +258,16 @@ public class Display extends Device {
 	 */
 	static final String PROGRESSBAR_USE_COLORS = "org.eclipse.swt.internal.win32.ProgressBar.useColors"; //$NON-NLS-1$
 	boolean progressbarUseColors = false;
+	/**
+	 * Use dark theme compatible icons for Text with SWT.ICON_SEARCH, SWT.ICON_CANCEL
+	 * Limitations:<br>
+	 * <ul>
+	 *   <li>Must be configured before first Text is created.</li>
+	 * </ul>
+	 * Expects a <code>boolean</code> value.
+	 */
+	static final String USE_DARKTHEME_TEXT_ICONS = "org.eclipse.swt.internal.win32.Text.useDarkThemeIcons"; //$NON-NLS-1$
+	boolean textUseDarkthemeIcons = false;
 
 	/* Custom icons */
 	long hIconSearch;
@@ -264,7 +276,6 @@ public class Display extends Device {
 	/* Focus */
 	int focusEvent;
 	Control focusControl;
-	boolean fixFocus;
 
 	/* Menus */
 	Menu [] bars, popups;
@@ -297,7 +308,7 @@ public class Display extends Device {
 	static final short [] ACCENTS = new short [] {'~', '`', '\'', '^', '"'};
 
 	/* Sync/Async Widget Communication */
-	Synchronizer synchronizer = new Synchronizer (this);
+	Synchronizer synchronizer;
 	Consumer<RuntimeException> runtimeExceptionHandler = DefaultExceptionHandler.RUNTIME_EXCEPTION_HANDLER;
 	Consumer<Error> errorHandler = DefaultExceptionHandler.RUNTIME_ERROR_HANDLER;
 	boolean runMessagesInIdle = false, runMessagesInMessageProc = true;
@@ -341,7 +352,7 @@ public class Display extends Device {
 	Point scrollRemainderEvt = new Point(0, 0);
 	Point scrollRemainderBar = new Point(0, 0);
 	int lastKey, lastMouse, lastAscii;
-	boolean lastVirtual, lastNull, lastDead;
+	boolean lastVirtual, lastDead;
 	byte [] keyboard = new byte [256];
 	boolean accelKeyHit, mnemonicKeyHit;
 	boolean lockActiveWindow, captureChanged, xMouse;
@@ -479,7 +490,7 @@ public class Display extends Device {
 
 	/* Multiple Displays */
 	static Display Default;
-	static Display [] Displays = new Display [4];
+	static Display [] Displays = new Display [1];
 
 	/* Multiple Monitors */
 	Monitor[] monitors = null;
@@ -587,30 +598,14 @@ void addBar (Menu menu) {
 	}
 	bars [index] = menu;
 }
-
 void addControl (long handle, Control control) {
 	if (handle == 0) return;
-	if (freeSlot == -1) {
-		int length = (freeSlot = indexTable.length) + GROW_SIZE;
-		int [] newIndexTable = new int [length];
-		Control [] newControlTable = new Control [length];
-		System.arraycopy (indexTable, 0, newIndexTable, 0, freeSlot);
-		System.arraycopy (controlTable, 0, newControlTable, 0, freeSlot);
-		for (int i=freeSlot; i<length-1; i++) newIndexTable [i] = i + 1;
-		newIndexTable [length - 1] = -1;
-		indexTable = newIndexTable;
-		controlTable = newControlTable;
-	}
-	OS.SetProp (handle, SWT_OBJECT_INDEX, freeSlot + 1);
-	int oldSlot = freeSlot;
-	freeSlot = indexTable [oldSlot];
-	indexTable [oldSlot] = -2;
-	controlTable [oldSlot] = control;
+	controlByHandle.put(handle, control);
 }
 
 void addSkinnableWidget (Widget widget) {
 	if (skinCount >= skinList.length) {
-		Widget[] newSkinWidgets = new Widget [skinList.length + GROW_SIZE];
+		Widget[] newSkinWidgets = new Widget [(skinList.length + 1) * 3 / 2];
 		System.arraycopy (skinList, 0, newSkinWidgets, 0, skinList.length);
 		skinList = newSkinWidgets;
 	}
@@ -782,6 +777,49 @@ public void asyncExec (Runnable runnable) {
 }
 
 /**
+ * Executes the given runnable in the user-interface thread of this Display.
+ * <ul>
+ * <li>If the calling thread is the user-interface thread of this display it is
+ * executed immediately and the method returns after the command has run, as with
+ * the method {@link Display#syncExec(Runnable)}.</li>
+ * <li>In all other cases the <code>run()</code> method of the runnable is
+ * asynchronously executed as with the method
+ * {@link Display#asyncExec(Runnable)} at the next reasonable opportunity. The
+ * caller of this method continues to run in parallel, and is not notified when
+ * the runnable has completed.</li>
+ * </ul>
+ * <p>
+ * This can be used in cases where one want to execute some piece of code that
+ * should be guaranteed to run in the user-interface thread regardless of the
+ * current thread.
+ * </p>
+ *
+ * <p>
+ * Note that at the time the runnable is invoked, widgets that have the receiver
+ * as their display may have been disposed. Therefore, it is advised to check
+ * for this case inside the runnable before accessing the widget.
+ * </p>
+ *
+ * @param runnable the runnable to execute in the user-interface thread, never
+ *                 <code>null</code>
+ * @throws RejectedExecutionException if this task cannot be accepted for
+ *                                    execution
+ * @throws NullPointerException       if runnable is null
+ */
+@Override
+public void execute(Runnable runnable) {
+	Objects.requireNonNull(runnable);
+	if (isDisposed()) {
+		throw new RejectedExecutionException(new SWTException (SWT.ERROR_WIDGET_DISPOSED, null));
+	}
+	if (thread == Thread.currentThread()) {
+		syncExec(runnable);
+	} else {
+		asyncExec(runnable);
+	}
+}
+
+/**
  * Causes the system hardware to emit a short sound
  * (if it supports this capability).
  *
@@ -846,7 +884,7 @@ void clearModal (Shell shell) {
 }
 
 int controlKey (int key) {
-	int upper = (int)OS.CharUpper ((short) key);
+	int upper = (int)OS.CharUpper (OS.LOWORD (key));
 	if (64 <= upper && upper <= 95) return upper & 0xBF;
 	return key;
 }
@@ -981,39 +1019,6 @@ static long create32bitDIB (Image image) {
 				dp += 4;
 			}
 		}
-	} else if (alpha != -1) {
-		for (int y = 0, dp = 0; y < imgHeight; ++y) {
-			for (int x = 0; x < imgWidth; ++x) {
-				int r = ((srcData[dp + 0] & 0xFF) * alpha) + 128;
-				r = (r + (r >> 8)) >> 8;
-				int g = ((srcData[dp + 1] & 0xFF) * alpha) + 128;
-				g = (g + (g >> 8)) >> 8;
-				int b = ((srcData[dp + 2] & 0xFF) * alpha) + 128;
-				b = (b + (b >> 8)) >> 8;
-				srcData[dp+0] = (byte)r;
-				srcData[dp+1] = (byte)g;
-				srcData[dp+2] = (byte)b;
-				srcData[dp+3] = (byte)alpha;
-				dp += 4;
-			}
-		}
-	} else if (alphaData != null) {
-		for (int y = 0, dp = 0, ap = 0; y < imgHeight; ++y) {
-			for (int x = 0; x < imgWidth; ++x) {
-				int a = alphaData[ap++] & 0xFF;
-				int r = ((srcData[dp + 0] & 0xFF) * a) + 128;
-				r = (r + (r >> 8)) >> 8;
-				int g = ((srcData[dp + 1] & 0xFF) * a) + 128;
-				g = (g + (g >> 8)) >> 8;
-				int b = ((srcData[dp + 2] & 0xFF) * a) + 128;
-				b = (b + (b >> 8)) >> 8;
-				srcData[dp+0] = (byte)r;
-				srcData[dp+1] = (byte)g;
-				srcData[dp+2] = (byte)b;
-				srcData[dp+3] = (byte)a;
-				dp += 4;
-			}
-		}
 	} else if (transparentPixel != -1) {
 		for (int y = 0, dp = 0; y < imgHeight; ++y) {
 			for (int x = 0; x < imgWidth; ++x) {
@@ -1025,7 +1030,7 @@ static long create32bitDIB (Image image) {
 				dp += 4;
 			}
 		}
-	} else {
+	} else if (alpha == -1 && alphaData == null) {
 		for (int y = 0, dp = 0; y < imgHeight; ++y) {
 			for (int x = 0; x < imgWidth; ++x) {
 				srcData [dp + 3] = (byte)0xFF;
@@ -1107,6 +1112,11 @@ static long create32bitDIB (long hBitmap, int alpha, byte [] alphaData, int tran
 	if (alpha != -1) {
 		for (int y = 0, dp = 0; y < imgHeight; ++y) {
 			for (int x = 0; x < imgWidth; ++x) {
+				if (alpha != 0) {
+					srcData [dp    ] = (byte)((((srcData[dp    ] & 0xFF) * 0xFF) + alpha / 2) / alpha);
+					srcData [dp + 1] = (byte)((((srcData[dp + 1] & 0xFF) * 0xFF) + alpha / 2) / alpha);
+					srcData [dp + 2] = (byte)((((srcData[dp + 2] & 0xFF) * 0xFF) + alpha / 2) / alpha);
+				}
 				srcData [dp + 3] = (byte)alpha;
 				dp += 4;
 			}
@@ -1114,7 +1124,13 @@ static long create32bitDIB (long hBitmap, int alpha, byte [] alphaData, int tran
 	} else if (alphaData != null) {
 		for (int y = 0, dp = 0, ap = 0; y < imgHeight; ++y) {
 			for (int x = 0; x < imgWidth; ++x) {
-				srcData [dp + 3] = alphaData [ap++];
+				int a = alphaData [ap++] & 0xFF;
+				if (a != 0) {
+					srcData [dp    ] = (byte)((((srcData[dp    ] & 0xFF) * 0xFF) + a / 2) / a);
+					srcData [dp + 1] = (byte)((((srcData[dp + 1] & 0xFF) * 0xFF) + a / 2) / a);
+					srcData [dp + 2] = (byte)((((srcData[dp + 2] & 0xFF) * 0xFF) + a / 2) / a);
+				}
+				srcData [dp + 3] = (byte)a;
 				dp += 4;
 			}
 		}
@@ -1287,7 +1303,7 @@ boolean filterMessage (MSG msg) {
 		if (control != null) {
 			if (translateAccelerator (msg, control) || translateMnemonic (msg, control) || translateTraversal (msg, control)) {
 				lastAscii = lastKey = 0;
-				lastVirtual = lastNull = lastDead = false;
+				lastVirtual = lastDead = false;
 				return true;
 			}
 		}
@@ -1391,7 +1407,7 @@ public Widget findWidget (Widget widget, long id) {
 
 long foregroundIdleProc (long code, long wParam, long lParam) {
 	if (code >= 0) {
-		if (getMessageCount () != 0) {
+		if (!synchronizer.isMessagesEmpty()) {
 			sendPostExternalEventDispatchEvent ();
 			if (runMessagesInIdle) {
 				if (runMessagesInMessageProc) {
@@ -1606,19 +1622,8 @@ Rectangle getClientAreaInPixels () {
 }
 
 Control getControl (long handle) {
-	if (handle == 0) return null;
-	if (lastControl != null && lastHwnd == handle) {
-		return lastControl;
-	}
-	if (lastGetControl != null && lastGetHwnd == handle) {
-		return lastGetControl;
-	}
-	int index = (int)OS.GetProp (handle, SWT_OBJECT_INDEX) - 1;
-	if (0 <= index && index < controlTable.length) {
-		lastGetHwnd = handle;
-		return lastGetControl = controlTable [index];
-	}
-	return null;
+	Control control = controlByHandle.get(handle);
+	return control;
 }
 
 /**
@@ -1703,11 +1708,7 @@ protected int getDeviceZoom() {
 	 * Win8.1 and above we should pick zoom for the primary monitor which always
 	 * reflects the latest OS zoom value, for more details refer bug 537273.
 	 */
-	if (OS.WIN32_VERSION >= OS.VERSION (6, 3)) {
-		return getPrimaryMonitor().getZoom();
-	}
-	/* Otherwise return Windows zoom level, as set during session login. */
-	return super.getDeviceZoom();
+	return getPrimaryMonitor().getZoom();
 }
 
 static boolean isValidClass (Class<?> clazz) {
@@ -2093,15 +2094,13 @@ ImageList getImageListToolBarHot (int style, int width, int height) {
 public static boolean isSystemDarkTheme () {
 	boolean isDarkTheme = false;
 	/*
-	 * Win10 onwards we can read the Dark Theme from the OS registry.
+	 * The registry settings, and Dark Theme itself, is present since Win10 1809
 	 */
-	if (OS.WIN32_VERSION >= OS.VERSION (10, 0)) {
-		try {
-			int result = OS.readRegistryDword(OS.HKEY_CURRENT_USER,
-					"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "AppsUseLightTheme");
-			isDarkTheme = (result == 0);
-		} catch (Exception e) {
-			// Registry entry not found
+	if (OS.WIN32_BUILD >= OS.WIN32_BUILD_WIN10_1809) {
+		int[] result = OS.readRegistryDwords(OS.HKEY_CURRENT_USER,
+				"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "AppsUseLightTheme");
+		if (result!=null) {
+			isDarkTheme = (result[0] == 0);
 		}
 	}
 	return isDarkTheme;
@@ -2117,17 +2116,6 @@ MenuItem getMenuItem (int id) {
 	if (0 <= id && id < items.length) return items [id];
 	return null;
 }
-
-int getMessageCount () {
-	/*
-	 * On Windows10 (update 18272), an NPE is seen in below code which leads to a
-	 * possible crash, adding a null check for synchronizer instance. For more
-	 * details refer bug 540762
-	 */
-	if (synchronizer != null) return synchronizer.getMessageCount ();
-	return 0;
-}
-
 
 Shell getModalShell () {
 	if (modalShells == null) return null;
@@ -2153,19 +2141,15 @@ Monitor getMonitor (long hmonitor) {
 	monitor.setBounds (DPIUtil.autoScaleDown (boundsInPixels));
 	Rectangle clientAreaInPixels = new Rectangle (lpmi.rcWork_left, lpmi.rcWork_top, lpmi.rcWork_right - lpmi.rcWork_left, lpmi.rcWork_bottom - lpmi.rcWork_top);
 	monitor.setClientArea (DPIUtil.autoScaleDown (clientAreaInPixels));
-	if (OS.WIN32_VERSION >= OS.VERSION (6, 3)) {
-		int [] dpiX = new int[1];
-		int [] dpiY = new int[1];
-		int result = OS.GetDpiForMonitor (monitor.handle, OS.MDT_EFFECTIVE_DPI, dpiX, dpiY);
-		result = (result == OS.S_OK) ? DPIUtil.mapDPIToZoom (dpiX[0]) : 100;
-		/*
-		 * Always return true monitor zoom value as fetched from native, else will lead
-		 * to scaling issue on OS Win8.1 and above, for more details refer bug 537614.
-		 */
-		monitor.zoom = result;
-	} else {
-		monitor.zoom = getDeviceZoom ();
-	}
+	int [] dpiX = new int[1];
+	int [] dpiY = new int[1];
+	int result = OS.GetDpiForMonitor (monitor.handle, OS.MDT_EFFECTIVE_DPI, dpiX, dpiY);
+	result = (result == OS.S_OK) ? DPIUtil.mapDPIToZoom (dpiX[0]) : 100;
+	/*
+	 * Always return true monitor zoom value as fetched from native, else will lead
+	 * to scaling issue on OS Win8.1 and above, for more details refer bug 537614.
+	 */
+	monitor.zoom = result;
 	return monitor;
 }
 
@@ -2266,7 +2250,7 @@ public Shell [] getShells () {
 	checkDevice ();
 	int index = 0;
 	Shell [] result = new Shell [16];
-	for (Control control : controlTable) {
+	for (Control control : controlByHandle.values()) {
 		if (control instanceof Shell) {
 			int j = 0;
 			while (j < index) {
@@ -2562,16 +2546,14 @@ public Menu getSystemMenu () {
 public TaskBar getSystemTaskBar () {
 	checkDevice ();
 	if (taskBar != null) return taskBar;
-	if (OS.WIN32_VERSION >= OS.VERSION (6, 1)) {
-		try {
-			taskBar = new TaskBar (this, SWT.NONE);
-		} catch (SWTError e) {
-			if (e.code == SWT.ERROR_NOT_IMPLEMENTED) {
-				// Windows Server Core doesn't have a Taskbar
-				return null;
-			}
-			throw e;
+	try {
+		taskBar = new TaskBar (this, SWT.NONE);
+	} catch (SWTError e) {
+		if (e.code == SWT.ERROR_NOT_IMPLEMENTED) {
+			// Windows Server Core doesn't have a Taskbar
+			return null;
 		}
+		throw e;
 	}
 	return taskBar;
 }
@@ -2631,27 +2613,91 @@ public boolean getTouchEnabled () {
 
 long hButtonTheme () {
 	if (hButtonTheme != 0) return hButtonTheme;
-	return hButtonTheme = OS.OpenThemeData (hwndMessage, BUTTON);
+	final char[] themeName = "BUTTON\0".toCharArray();
+	return hButtonTheme = OS.OpenThemeData (hwndMessage, themeName);
+}
+
+long hButtonThemeDark () {
+	if (hButtonThemeDark != 0) return hButtonThemeDark;
+	final char[] themeName = "Darkmode_Explorer::BUTTON\0".toCharArray();
+	return hButtonThemeDark = OS.OpenThemeData (hwndMessage, themeName);
+}
+
+long hButtonThemeAuto () {
+	if (useDarkModeExplorerTheme) {
+		return hButtonThemeDark ();
+	} else {
+		return hButtonTheme ();
+	}
 }
 
 long hEditTheme () {
 	if (hEditTheme != 0) return hEditTheme;
-	return hEditTheme = OS.OpenThemeData (hwndMessage, EDIT);
+	final char[] themeName = "EDIT\0".toCharArray();
+	return hEditTheme = OS.OpenThemeData (hwndMessage, themeName);
 }
 
 long hExplorerBarTheme () {
 	if (hExplorerBarTheme != 0) return hExplorerBarTheme;
-	return hExplorerBarTheme = OS.OpenThemeData (hwndMessage, EXPLORERBAR);
+	final char[] themeName = "EXPLORERBAR\0".toCharArray();
+	return hExplorerBarTheme = OS.OpenThemeData (hwndMessage, themeName);
 }
 
 long hScrollBarTheme () {
 	if (hScrollBarTheme != 0) return hScrollBarTheme;
-	return hScrollBarTheme = OS.OpenThemeData (hwndMessage, SCROLLBAR);
+	final char[] themeName = "SCROLLBAR\0".toCharArray();
+	return hScrollBarTheme = OS.OpenThemeData (hwndMessage, themeName);
+}
+
+long hScrollBarThemeDark () {
+	if (hScrollBarThemeDark != 0) return hScrollBarThemeDark;
+	final char[] themeName = "Darkmode_Explorer::SCROLLBAR\0".toCharArray();
+	return hScrollBarThemeDark = OS.OpenThemeData (hwndMessage, themeName);
+}
+
+long hScrollBarThemeAuto () {
+	if (useDarkModeExplorerTheme) {
+		return hScrollBarThemeDark ();
+	} else {
+		return hScrollBarTheme ();
+	}
 }
 
 long hTabTheme () {
 	if (hTabTheme != 0) return hTabTheme;
-	return hTabTheme = OS.OpenThemeData (hwndMessage, TAB);
+	final char[] themeName = "TAB\0".toCharArray();
+	return hTabTheme = OS.OpenThemeData (hwndMessage, themeName);
+}
+
+void resetThemes() {
+	if (hButtonTheme != 0) {
+		OS.CloseThemeData (hButtonTheme);
+		hButtonTheme = 0;
+	}
+	if (hButtonThemeDark != 0) {
+		OS.CloseThemeData (hButtonThemeDark);
+		hButtonThemeDark = 0;
+	}
+	if (hEditTheme != 0) {
+		OS.CloseThemeData (hEditTheme);
+		hEditTheme = 0;
+	}
+	if (hExplorerBarTheme != 0) {
+		OS.CloseThemeData (hExplorerBarTheme);
+		hExplorerBarTheme = 0;
+	}
+	if (hScrollBarTheme != 0) {
+		OS.CloseThemeData (hScrollBarTheme);
+		hScrollBarTheme = 0;
+	}
+	if (hScrollBarThemeDark != 0) {
+		OS.CloseThemeData (hScrollBarThemeDark);
+		hScrollBarThemeDark = 0;
+	}
+	if (hTabTheme != 0) {
+		OS.CloseThemeData (hTabTheme);
+		hTabTheme = 0;
+	}
 }
 
 /**
@@ -2705,22 +2751,23 @@ public long internal_new_GC (GCData data) {
  */
 @Override
 protected void init () {
+	// Field initialization happens after super constructor
+	controlByHandle = new HashMap<>();
+	this.synchronizer = new Synchronizer (this);
 	super.init ();
 	DPIUtil.setDeviceZoom (getDeviceZoom ());
 
 	/* Set the application user model ID, if APP_NAME is non Default */
 	char [] appName = null;
 	if (APP_NAME != null && !"SWT".equalsIgnoreCase (APP_NAME)) {
-		if (OS.WIN32_VERSION >= OS.VERSION (6, 1)) {
-			int length = APP_NAME.length ();
-			appName = new char [length + 1];
-			APP_NAME.getChars (0, length, appName, 0);
-			long [] appID = new long [1];
-			if (OS.GetCurrentProcessExplicitAppUserModelID(appID) != 0) {
-				OS.SetCurrentProcessExplicitAppUserModelID (appName);
-			}
-			if (appID[0] != 0) OS.CoTaskMemFree(appID[0]);
+		int length = APP_NAME.length ();
+		appName = new char [length + 1];
+		APP_NAME.getChars (0, length, appName, 0);
+		long [] appID = new long [1];
+		if (OS.GetCurrentProcessExplicitAppUserModelID(appID) != 0) {
+			OS.SetCurrentProcessExplicitAppUserModelID (appName);
 		}
+		if (appID[0] != 0) OS.CoTaskMemFree(appID[0]);
 	}
 
 	/* Create the callbacks */
@@ -2805,12 +2852,6 @@ protected void init () {
 
 	/* Initialize buffered painting */
 	OS.BufferedPaintInit ();
-
-	/* Initialize the Widget Table */
-	indexTable = new int [GROW_SIZE];
-	controlTable = new Control [GROW_SIZE];
-	for (int i=0; i<GROW_SIZE-1; i++) indexTable [i] = i + 1;
-	indexTable [GROW_SIZE - 1] = -1;
 }
 
 /**
@@ -2838,11 +2879,9 @@ boolean isXMouseActive () {
 	* NOTE: X-Mouse is active when bit 1 of the UserPreferencesMask is set.
 	*/
 	boolean xMouseActive = false;
-	try {
-		int result = OS.readRegistryDword(OS.HKEY_CURRENT_USER, "Control Panel\\Desktop", "UserPreferencesMask");
-		xMouseActive = (result & 0x01) != 0;
-	} catch (Exception e) {
-		// Registry entry not found
+	int[] result = OS.readRegistryDwords(OS.HKEY_CURRENT_USER, "Control Panel\\Desktop", "UserPreferencesMask");
+	if (result!=null) {
+		xMouseActive = (result[0] & 0x01) != 0;
 	}
 	return xMouseActive;
 }
@@ -3240,12 +3279,7 @@ long messageProc (long hwnd, long msg, long wParam, long lParam) {
 			break;
 		}
 		case OS.WM_THEMECHANGED: {
-			if (hButtonTheme != 0) OS.CloseThemeData (hButtonTheme);
-			if (hEditTheme != 0) OS.CloseThemeData (hEditTheme);
-			if (hExplorerBarTheme != 0) OS.CloseThemeData (hExplorerBarTheme);
-			if (hScrollBarTheme != 0) OS.CloseThemeData (hScrollBarTheme);
-			if (hTabTheme != 0) OS.CloseThemeData (hTabTheme);
-			hButtonTheme = hEditTheme = hExplorerBarTheme = hScrollBarTheme = hTabTheme = 0;
+			resetThemes();
 			break;
 		}
 		case OS.WM_TIMER: {
@@ -3670,33 +3704,61 @@ static void register (Display display) {
  */
 @Override
 protected void release () {
-	sendEvent (SWT.Dispose, new Event ());
-	for (Shell shell : getShells ()) {
-		if (!shell.isDisposed ()) shell.dispose ();
-	}
-	if (tray != null) tray.dispose ();
-	tray = null;
-	if (taskBar != null) taskBar.dispose ();
-	taskBar = null;
-	while (readAndDispatch ()) {}
-	if (disposeList != null) {
-		for (Runnable next : disposeList) {
-			if (next != null) {
+	try (ExceptionStash exceptions = new ExceptionStash ()) {
+		try {
+			sendEvent (SWT.Dispose, new Event ());
+		} catch (Error | RuntimeException ex) {
+			exceptions.stash (ex);
+		}
+
+		for (Shell shell : getShells ()) {
+			try {
+				if (!shell.isDisposed ()) shell.dispose ();
+			} catch (Error | RuntimeException ex) {
+				exceptions.stash (ex);
+			}
+		}
+
+		try {
+			if (tray != null) tray.dispose ();
+		} catch (Error | RuntimeException ex) {
+			exceptions.stash (ex);
+		}
+		tray = null;
+
+		try {
+			if (taskBar != null) taskBar.dispose ();
+		} catch (Error | RuntimeException ex) {
+			exceptions.stash (ex);
+		}
+		taskBar = null;
+
+		for (;;) {
+			try {
+				if (!readAndDispatch ()) break;
+			} catch (Error | RuntimeException ex) {
+				exceptions.stash (ex);
+			}
+		}
+
+		if (disposeList != null) {
+			for (Runnable next : disposeList) {
+				if (next == null) continue;
+
 				try {
 					next.run ();
-				} catch (RuntimeException exception) {
-					runtimeExceptionHandler.accept (exception);
-				} catch (Error error) {
-					errorHandler.accept (error);
+				} catch (Error | RuntimeException ex) {
+					exceptions.stash (ex);
 				}
 			}
 		}
+		disposeList = null;
+
+		synchronizer.releaseSynchronizer ();
+		synchronizer = null;
+		releaseDisplay ();
+		super.release ();
 	}
-	disposeList = null;
-	synchronizer.releaseSynchronizer ();
-	synchronizer = null;
-	releaseDisplay ();
-	super.release ();
 }
 
 void releaseDisplay () {
@@ -3709,12 +3771,7 @@ void releaseDisplay () {
 	if (hIconCancel != 0) OS.DestroyIcon (hIconCancel);
 
 	/* Release XP Themes */
-	if (hButtonTheme != 0) OS.CloseThemeData (hButtonTheme);
-	if (hEditTheme != 0) OS.CloseThemeData (hEditTheme);
-	if (hExplorerBarTheme != 0) OS.CloseThemeData (hExplorerBarTheme);
-	if (hScrollBarTheme != 0) OS.CloseThemeData (hScrollBarTheme);
-	if (hTabTheme != 0) OS.CloseThemeData (hTabTheme);
-	hButtonTheme = hEditTheme = hExplorerBarTheme = hScrollBarTheme = hTabTheme = 0;
+	resetThemes();
 	if (menuBarBorderPen != 0) OS.DeleteObject (menuBarBorderPen);
 	menuBarBorderPen = 0;
 
@@ -3805,10 +3862,8 @@ void releaseDisplay () {
 	keys = null;
 	values = null;
 	bars = popups = null;
-	indexTable = null;
 	timerIds = null;
-	controlTable = null;
-	lastControl = lastGetControl = lastHittestControl = null;
+	lastHittestControl = null;
 	imageList = toolImageList = toolHotImageList = toolDisabledImageList = null;
 	timerList = null;
 	tableBuffer = null;
@@ -3969,16 +4024,7 @@ void removeBar (Menu menu) {
 }
 
 Control removeControl (long handle) {
-	if (handle == 0) return null;
-	lastControl = lastGetControl = null;
-	Control control = null;
-	int index = (int)OS.RemoveProp (handle, SWT_OBJECT_INDEX) - 1;
-	if (0 <= index && index < controlTable.length) {
-		control = controlTable [index];
-		controlTable [index] = null;
-		indexTable [index] = freeSlot;
-		freeSlot = index;
-	}
+	Control control = controlByHandle.remove(handle);
 	return control;
 }
 
@@ -4189,6 +4235,25 @@ void saveResources () {
 	}
 }
 
+private void sendJDKInternalEvent(int eventType) {
+	sendJDKInternalEvent(eventType, 0);
+}
+/** does sent event with JDK time**/
+private void sendJDKInternalEvent(int eventType, int detail) {
+	if (eventTable == null || !eventTable.hooks (eventType)) {
+		return;
+	}
+	Event event = new Event ();
+	event.detail = detail;
+	event.display = this;
+	event.type = eventType;
+	// time is set for debugging purpose only:
+	event.time = (int) (System.nanoTime() / 1000_000L);
+	if (!filterEvent (event)) {
+		sendEvent (eventTable, event);
+	}
+}
+
 void sendEvent (int eventType, Event event) {
 	if (eventTable == null && filterTable == null) {
 		return;
@@ -4216,11 +4281,7 @@ void sendPreEvent (int eventType) {
 	if (eventType != SWT.PreEvent && eventType != SWT.PostEvent
 			&& eventType != SWT.PreExternalEventDispatch
 			&& eventType != SWT.PostExternalEventDispatch) {
-		if (eventTable != null && eventTable.hooks (SWT.PreEvent)) {
-			Event event = new Event ();
-			event.detail = eventType;
-			sendEvent (SWT.PreEvent, event);
-		}
+		sendJDKInternalEvent (SWT.PreEvent, eventType);
 	}
 }
 
@@ -4228,11 +4289,7 @@ void sendPostEvent (int eventType) {
 	if (eventType != SWT.PreEvent && eventType != SWT.PostEvent
 			&& eventType != SWT.PreExternalEventDispatch
 			&& eventType != SWT.PostExternalEventDispatch) {
-		if (eventTable != null && eventTable.hooks (SWT.PostEvent)) {
-			Event event = new Event ();
-			event.detail = eventType;
-			sendEvent (SWT.PostEvent, event);
-		}
+		sendJDKInternalEvent (SWT.PostEvent, eventType);
 	}
 }
 
@@ -4242,9 +4299,7 @@ void sendPostEvent (int eventType) {
  * @noreference This method is not intended to be referenced by clients.
  */
 public void sendPreExternalEventDispatchEvent () {
-	if (eventTable != null && eventTable.hooks (SWT.PreExternalEventDispatch)) {
-		sendEvent (SWT.PreExternalEventDispatch, null);
-	}
+	sendJDKInternalEvent (SWT.PreExternalEventDispatch);
 }
 
 /**
@@ -4253,9 +4308,7 @@ public void sendPreExternalEventDispatchEvent () {
  * @noreference This method is not intended to be referenced by clients.
  */
 public void sendPostExternalEventDispatchEvent () {
-	if (eventTable != null && eventTable.hooks (SWT.PostExternalEventDispatch)) {
-		sendEvent (SWT.PostExternalEventDispatch, null);
-	}
+	sendJDKInternalEvent (SWT.PostExternalEventDispatch);
 }
 
 /**
@@ -4384,6 +4437,9 @@ public void setData (String key, Object value) {
 				OS.SetPreferredAppMode(PreferredAppMode_Default);
 			}
 			return;
+		case USE_SHELL_TITLE_COLORING:
+			useShellTitleColoring = !disableCustomThemeTweaks && _toBoolean(value);
+			return;
 		case MENUBAR_FOREGROUND_COLOR_KEY:
 			menuBarForegroundPixel = disableCustomThemeTweaks ? -1 : _toColorPixel(value);
 			return;
@@ -4431,6 +4487,9 @@ public void setData (String key, Object value) {
 			break;
 		case PROGRESSBAR_USE_COLORS:
 			progressbarUseColors = !disableCustomThemeTweaks && _toBoolean(value);
+			break;
+		case USE_DARKTHEME_TEXT_ICONS:
+			textUseDarkthemeIcons = !disableCustomThemeTweaks && _toBoolean(value);
 			break;
 	}
 
@@ -4542,10 +4601,12 @@ public static String getAppVersion () {
  * to any value other than "SWT" (case insensitive),
  * it is used to set the application user model ID
  * which is used by the OS for taskbar grouping.
- * @see <a href="http://msdn.microsoft.com/en-us/library/windows/desktop/dd378459%28v=vs.85%29.aspx#HOW">AppUserModelID (Windows)</a>
- * </p><p>
+ * </p>
+ * <p>
  * Specifying <code>null</code> for the name clears it.
  * </p>
+ *
+ * @see <a href="http://msdn.microsoft.com/en-us/library/windows/desktop/dd378459%28v=vs.85%29.aspx#HOW">AppUserModelID (Windows)</a>
  *
  * @param name the new app name or <code>null</code>
  */
@@ -4704,7 +4765,7 @@ int shiftedKey (int key) {
  */
 public boolean sleep () {
 	checkDevice ();
-	if (getMessageCount () != 0) return true;
+	if (!synchronizer.isMessagesEmpty()) return true;
 	sendPreExternalEventDispatchEvent ();
 	boolean result = OS.WaitMessage ();
 	sendPostExternalEventDispatchEvent ();
@@ -4740,6 +4801,54 @@ public void syncExec (Runnable runnable) {
 		synchronizer = this.synchronizer;
 	}
 	synchronizer.syncExec (runnable);
+}
+
+/**
+ * Calls the callable on the user-interface thread at the next reasonable
+ * opportunity, and returns the its result from this method. The thread which
+ * calls this method is suspended until the callable completes.
+ * <p>
+ * Note that at the time the callable is invoked, widgets that have the receiver
+ * as their display may have been disposed. Therefore, it is necessary to check
+ * for this case inside the callable before accessing the widget.
+ * </p>
+ * <p>
+ * Any exception that is thrown from the callable is re-thrown in the calling
+ * thread. Note: The exception retains its original stack trace from the
+ * throwing thread. The call to {@code syncCall} will not be present in the
+ * stack trace.
+ * </p>
+ *
+ * @param callable the code to call on the user-interface thread
+ *
+ * @exception SWTException <code>ERROR_DEVICE_DISPOSED</code> - if the receiver
+ *                         has been disposed
+ * @exception E            An exception that is thrown by the callable on the
+ *                         user-interface thread, and re-thrown on the calling
+ *                         thread
+ *
+ * @see #syncExec(Runnable)
+ * @see SwtCallable#call()
+ * @since 3.118
+ */
+public <T, E extends Exception> T syncCall(SwtCallable<T, E> callable) throws E {
+	Objects.nonNull(callable);
+	@SuppressWarnings("unchecked")
+	T[] t = (T[]) new Object[1];
+	Object[] ex = new Object[1];
+	syncExec(() -> {
+		try {
+			t[0] = callable.call();
+		} catch (Exception e) {
+			ex[0] = e;
+		}
+	});
+	if (ex[0] != null) {
+		@SuppressWarnings("unchecked")
+		E e = (E) ex[0];
+		throw e;
+	}
+	return t[0];
 }
 
 /**
@@ -4926,17 +5035,9 @@ void wakeThread () {
 }
 
 long windowProc (long hwnd, long msg, long wParam, long lParam) {
-	if (lastControl != null && lastHwnd == hwnd) {
-		return lastControl.windowProc (hwnd, (int)msg, wParam, lParam);
-	}
-	int index = (int)OS.GetProp (hwnd, SWT_OBJECT_INDEX) - 1;
-	if (0 <= index && index < controlTable.length) {
-		Control control = controlTable [index];
-		if (control != null) {
-			lastHwnd = hwnd;
-			lastControl = control;
-			return control.windowProc (hwnd, (int)msg, wParam, lParam);
-		}
+	Control control = getControl(hwnd);
+	if (control != null) {
+		return control.windowProc (hwnd, (int)msg, wParam, lParam);
 	}
 	return OS.DefWindowProc (hwnd, (int)msg, wParam, lParam);
 }
@@ -5093,4 +5194,7 @@ static char [] withCrLf (char [] string) {
 	return result;
 }
 
+static boolean isActivateShellOnForceFocus() {
+	return "true".equals(System.getProperty("org.eclipse.swt.internal.activateShellOnForceFocus", "true")); //$NON-NLS-1$
+}
 }

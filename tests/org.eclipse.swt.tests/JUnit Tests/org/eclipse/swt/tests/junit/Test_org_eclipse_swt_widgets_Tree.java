@@ -380,7 +380,6 @@ public void test_setHeaderBackgroundLorg_eclipse_swt_graphics_Color() {
 	assertEquals(color, tree.getHeaderBackground());
 	tree.setHeaderBackground(null);
 	assertFalse(tree.getHeaderBackground().equals(color));
-	color.dispose();
 }
 
 @Test
@@ -391,7 +390,6 @@ public void test_setHeaderForegroundLorg_eclipse_swt_graphics_Color() {
 	assertEquals(color, tree.getHeaderForeground());
 	tree.setHeaderForeground(null);
 	assertFalse(tree.getHeaderForeground().equals(color));
-	color.dispose();
 }
 
 @Test
@@ -976,4 +974,220 @@ public void test_Virtual() {
 	assertTrue("SetData callback count not in range: " + dataCounter[0],
 			dataCounter[0] > visibleCount / 2 && dataCounter[0] <= visibleCount * 3);
 }
+
+@Test
+public void test_emptinessChanged() {
+	int NOT_EMPTY = 0;
+	int EMPTY = 1;
+	int[] count = { 0, 0 };
+	tree.addListener(SWT.EmptinessChanged, e -> ++count[e.detail] );
+
+	// Create first item. Expected one NOT_EMPTY event.
+	TreeItem item1 = new TreeItem(tree, SWT.NONE);
+	assertEquals(1, count[NOT_EMPTY]);
+	assertEquals(0, count[EMPTY]);
+
+	// Create second item. Expected no further event.
+	TreeItem item2 = new TreeItem(tree, SWT.NONE);
+	assertEquals(1, count[NOT_EMPTY]);
+	assertEquals(0, count[EMPTY]);
+
+	// Remove one item. Expected no further event.
+	item1.dispose();
+	assertEquals(1, count[NOT_EMPTY]);
+	assertEquals(0, count[EMPTY]);
+
+	// Remove last item. Expected one EMPTY event.
+	item2.dispose();
+	assertEquals(1, count[NOT_EMPTY]);
+	assertEquals(1, count[EMPTY]);
+
+	// Create first item. Expected one more NOT_EMPTY event.
+	item1 = new TreeItem(tree, SWT.NONE);
+	assertEquals(2, count[NOT_EMPTY]);
+	assertEquals(1, count[EMPTY]);
+
+	// Create second item as child of the first item. Expected no further event.
+	item2 = new TreeItem(item1, SWT.NONE);
+	assertEquals(2, count[NOT_EMPTY]);
+	assertEquals(1, count[EMPTY]);
+
+	// Remove both items. Expected one more EMPTY event.
+	item1.dispose();
+	assertEquals(2, count[NOT_EMPTY]);
+	assertEquals(2, count[EMPTY]);
+
+	// Noop. Expected no further event.
+	item2.dispose();
+	assertEquals(2, count[NOT_EMPTY]);
+	assertEquals(2, count[EMPTY]);
+}
+
+private void testTreeRegularAndVirtual(Runnable runnable) {
+	runnable.run();
+
+	tree.dispose();
+	tree = new Tree(shell, SWT.VIRTUAL);
+	setWidget(tree);
+
+	runnable.run();
+}
+
+@Test
+public void test_setItemCount_itemOrderRoot() {
+	testTreeRegularAndVirtual(() -> {
+		// Test root items
+		{
+			Tree parent = tree;
+
+			// Create items
+			{
+				new TreeItem (parent, 0).setText ("0");
+				new TreeItem (parent, 0).setText ("2");
+				new TreeItem (parent, 0, 1).setText ("1");
+
+				parent.setItemCount (6);
+
+				parent.getItem (3).setText ("3");
+				parent.getItem (4).setText ("4");
+				parent.getItem (5).setText ("5");
+
+				new TreeItem (parent, 0).setText ("6");
+				new TreeItem (parent, 0).setText ("8");
+				new TreeItem (parent, 0, 7).setText ("7");
+
+				parent.setItemCount (12);
+
+				parent.getItem (9).setText ("9");
+				parent.getItem (10).setText ("10");
+				parent.getItem (11).setText ("11");
+			}
+
+			// Test items
+			TreeItem[] items = parent.getItems();
+			assertEquals(12, items.length);
+			for (int iItem = 0; iItem < items.length; iItem++) {
+				assertEquals(Integer.toString(iItem), items[iItem].getText());
+			}
+		}
+
+		// Test child items
+		{
+			TreeItem parent = tree.getItem(0);
+
+			// Create items
+			{
+				new TreeItem(parent, 0).setText("0");
+				new TreeItem(parent, 0).setText("2");
+				new TreeItem(parent, 0, 1).setText("1");
+
+				parent.setItemCount(6);
+
+				parent.getItem(3).setText("3");
+				parent.getItem(4).setText("4");
+				parent.getItem(5).setText("5");
+
+				new TreeItem(parent, 0).setText("6");
+				new TreeItem(parent, 0).setText("8");
+				new TreeItem(parent, 0, 7).setText("7");
+
+				parent.setItemCount(12);
+
+				parent.getItem(9).setText("9");
+				parent.getItem(10).setText("10");
+				parent.getItem(11).setText("11");
+			}
+
+			// Test items
+			TreeItem[] items = parent.getItems();
+			assertEquals(12, items.length);
+			for (int iItem = 0; iItem < items.length; iItem++) {
+				assertEquals(Integer.toString(iItem), items[iItem].getText());
+			}
+		}
+	});
+}
+
+@Test
+public void test_setItemCount_indexOf() {
+	testTreeRegularAndVirtual(() -> {
+		tree.setItemCount(10);
+		TreeItem item_0 = tree.getItem(0);
+		TreeItem item_2 = tree.getItem(2);
+
+		item_0.setItemCount(10);
+		item_0.setExpanded(true);
+		TreeItem item_0_4 = item_0.getItem(4);
+
+		// Issue 287
+		{
+			// Bug requires Tree to be visible
+			if (!shell.getVisible()) {
+				shell.setLayout(new FillLayout());
+				shell.pack();
+				shell.open();
+			} else {
+				tree.pack();
+			}
+			SwtTestUtil.processEvents();
+
+			tree.setItemCount(5);
+			tree.setItemCount(10);
+
+			// Bug requires 'TVN_GETDISPINFO' to be processed
+			SwtTestUtil.processEvents();
+
+			assertEquals(2, tree.indexOf(item_2));
+		}
+
+		// Issue 333
+		{
+			item_0.setItemCount(5);   // This causes cached index to be reset
+			item_0.indexOf(item_0_4); // This causes index to be cached again
+			item_0.setItemCount(10);  // This causes index to be recalculated
+			assertEquals(4, item_0.indexOf(item_0_4));
+		}
+	});
+}
+
+@Test
+public void test_setItemCount_itemCount() {
+	testTreeRegularAndVirtual(() -> {
+		// Test root items
+		tree.setItemCount(10);
+		assertEquals(10, tree.getItemCount());
+		tree.setItemCount(20);
+		assertEquals(20, tree.getItemCount());
+		tree.setItemCount(5);
+		assertEquals(5, tree.getItemCount());
+
+		// Test child items
+		TreeItem item_0 = tree.getItem(0);
+		item_0.setItemCount(10);
+		assertEquals(10, item_0.getItemCount());
+		item_0.setItemCount(20);
+		assertEquals(20, item_0.getItemCount());
+		item_0.setItemCount(5);
+		assertEquals(5, item_0.getItemCount());
+	});
+}
+
+@Test
+public void test_setItemCount_itemCount2() {
+	testTreeRegularAndVirtual(() -> {
+		// Test root items
+		tree.setItemCount(10);
+		tree.getItem(5).dispose();
+		new TreeItem(tree, 0, 0);
+		assertEquals(10, tree.getItemCount());
+
+		// Test child items
+		TreeItem item_0 = tree.getItem(0);
+		item_0.setItemCount(10);
+		item_0.getItem(5).dispose();
+		new TreeItem(item_0, 0, 0);
+		assertEquals(10, item_0.getItemCount());
+	});
+}
+
 }

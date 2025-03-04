@@ -51,7 +51,6 @@ public class CTabFolderRenderer {
 	Color selectedOuterColor = null;
 	Color selectedInnerColor = null;
 	Color tabAreaColor = null;
-	Color minMaxBorderColor = null;
 	/*
 	 * Border color that was used in computing the cached anti-alias Colors.
 	 * We have to recompute the colors if the border color changes
@@ -85,7 +84,7 @@ public class CTabFolderRenderer {
 	static final int[] SIMPLE_BOTTOM_LEFT_CORNER_BORDERLESS = new int[] {0,-3, 1,-2, 2,-1, 3,0};
 	static final int[] SIMPLE_BOTTOM_RIGHT_CORNER_BORDERLESS = new int[] {-4,0, -3,-1, -2,-2, -1,-3};
 
-	static final RGB CLOSE_FILL = new RGB(252, 160, 160);
+	static final RGB CLOSE_FILL = new RGB(240, 64, 64);
 
 	static final int BUTTON_SIZE = 16;
 	static final int BUTTON_TRIM = 1;
@@ -544,7 +543,6 @@ public class CTabFolderRenderer {
 		disposeSelectionHighlightGradientColors();
 
 		fillColor = null;
-		minMaxBorderColor = null;
 
 		if (chevronFont != null) {
 			chevronFont.dispose();
@@ -593,12 +591,6 @@ public class CTabFolderRenderer {
 	 * @since 3.6
 	 */
 	protected void draw (int part, int state, Rectangle bounds, GC gc) {
-		if (minMaxBorderColor == null) {
-			// this color has to be identical to the colors used in the PNG files of
-			// the view drop down menu located in
-			// org.eclipse.e4.ui.workbench.renderers.swt/icons/full/elcl16/view_menu.png
-			minMaxBorderColor = new Color (105, 105, 105);
-		}
 		switch (part) {
 			case PART_BACKGROUND:
 				this.drawBackground(gc, bounds, state);
@@ -863,46 +855,25 @@ public class CTabFolderRenderer {
 
 	void drawClose(GC gc, Rectangle closeRect, int closeImageState) {
 		if (closeRect.width == 0 || closeRect.height == 0) return;
-		Display display = parent.getDisplay();
 
-		// draw X 9x9
-		int x = closeRect.x + Math.max(1, (closeRect.width-9)/2);
-		int y = closeRect.y + Math.max(1, (closeRect.height-9)/2);
+		// draw X with length of this constant
+		final int lineLength = 8;
+		int x = closeRect.x + Math.max(1, (closeRect.width-lineLength)/2);
+		int y = closeRect.y + Math.max(1, (closeRect.height-lineLength)/2);
 		y += parent.onBottom ? -1 : 1;
-
-		Color closeBorder = display.getSystemColor(BUTTON_BORDER);
+		int originalLineWidth = gc.getLineWidth();
+		Color originalForeground = gc.getForeground();
 		switch (closeImageState & (SWT.HOT | SWT.SELECTED | SWT.BACKGROUND)) {
 			case SWT.NONE: {
-				int[] shape = new int[] {x,y, x+2,y, x+4,y+2, x+5,y+2, x+7,y, x+9,y,
-										 x+9,y+2, x+7,y+4, x+7,y+5, x+9,y+7, x+9,y+9,
-										 x+7,y+9, x+5,y+7, x+4,y+7, x+2,y+9, x,y+9,
-										 x,y+7, x+2,y+5, x+2,y+4, x,y+2};
-				gc.setBackground(display.getSystemColor(BUTTON_FILL));
-				gc.fillPolygon(shape);
-				gc.setForeground(closeBorder);
-				gc.drawPolygon(shape);
+				drawCloseLines(gc, x, y , lineLength, false);
 				break;
 			}
 			case SWT.HOT: {
-				int[] shape = new int[] {x,y, x+2,y, x+4,y+2, x+5,y+2, x+7,y, x+9,y,
-										 x+9,y+2, x+7,y+4, x+7,y+5, x+9,y+7, x+9,y+9,
-										 x+7,y+9, x+5,y+7, x+4,y+7, x+2,y+9, x,y+9,
-										 x,y+7, x+2,y+5, x+2,y+4, x,y+2};
-				gc.setBackground(getFillColor());
-				gc.fillPolygon(shape);
-				gc.setForeground(closeBorder);
-				gc.drawPolygon(shape);
+				drawCloseLines(gc, x, y , lineLength, true);
 				break;
 			}
 			case SWT.SELECTED: {
-				int[] shape = new int[] {x+1,y+1, x+3,y+1, x+5,y+3, x+6,y+3, x+8,y+1, x+10,y+1,
-										 x+10,y+3, x+8,y+5, x+8,y+6, x+10,y+8, x+10,y+10,
-										 x+8,y+10, x+6,y+8, x+5,y+8, x+3,y+10, x+1,y+10,
-										 x+1,y+8, x+3,y+6, x+3,y+5, x+1,y+3};
-				gc.setBackground(getFillColor());
-				gc.fillPolygon(shape);
-				gc.setForeground(closeBorder);
-				gc.drawPolygon(shape);
+				drawCloseLines(gc, x, y , lineLength, true);
 				break;
 			}
 			case SWT.BACKGROUND: {
@@ -911,6 +882,18 @@ public class CTabFolderRenderer {
 				break;
 			}
 		}
+		gc.setLineWidth(originalLineWidth);
+		gc.setForeground(originalForeground);
+	}
+
+	private void drawCloseLines(GC gc, int x, int y, int lineLength, boolean hot) {
+		if (hot) {
+			gc.setLineWidth(gc.getLineWidth() + 2);
+			gc.setForeground(getFillColor());
+		}
+		gc.setLineCap(SWT.CAP_ROUND);
+		gc.drawLine(x, y, x + lineLength, y + lineLength);
+		gc.drawLine(x, y + lineLength, x + lineLength, y);
 	}
 
 	void drawChevron(GC gc, Rectangle chevronRect, int chevronImageState) {
@@ -1105,23 +1088,18 @@ public class CTabFolderRenderer {
 
 	void drawMaximize(GC gc, Rectangle maxRect, int maxImageState) {
 		if (maxRect.width == 0 || maxRect.height == 0) return;
-		Display display = parent.getDisplay();
 		// 5x4 or 7x9
 		int x = maxRect.x + (maxRect.width - 10)/2;
 		int y = maxRect.y + 3;
 
-		gc.setForeground(minMaxBorderColor);
-		gc.setBackground(display.getSystemColor(BUTTON_FILL));
+		gc.setForeground(parent.getForeground());
 
 		switch (maxImageState & (SWT.HOT | SWT.SELECTED)) {
 			case SWT.NONE: {
 				if (!parent.getMaximized()) {
-					gc.fillRectangle(x, y, 9, 9);
 					gc.drawRectangle(x, y, 9, 9);
 					gc.drawLine(x, y+2, x+9, y+2);
 				} else {
-					gc.fillRectangle(x, y+3, 5, 4);
-					gc.fillRectangle(x+2, y, 5, 4);
 					gc.drawRectangle(x, y+3, 5, 4);
 					gc.drawRectangle(x+2, y, 5, 4);
 					gc.drawLine(x+2, y+1, x+7, y+1);
@@ -1132,12 +1110,9 @@ public class CTabFolderRenderer {
 			case SWT.HOT: {
 				drawRoundRectangle(gc, maxRect);
 				if (!parent.getMaximized()) {
-					gc.fillRectangle(x, y, 9, 9);
 					gc.drawRectangle(x, y, 9, 9);
 					gc.drawLine(x, y+2, x+9, y+2);
 				} else {
-					gc.fillRectangle(x, y+3, 5, 4);
-					gc.fillRectangle(x+2, y, 5, 4);
 					gc.drawRectangle(x, y+3, 5, 4);
 					gc.drawRectangle(x+2, y, 5, 4);
 					gc.drawLine(x+2, y+1, x+7, y+1);
@@ -1148,12 +1123,9 @@ public class CTabFolderRenderer {
 			case SWT.SELECTED: {
 				drawRoundRectangle(gc, maxRect);
 				if (!parent.getMaximized()) {
-					gc.fillRectangle(x+1, y+1, 9, 9);
 					gc.drawRectangle(x+1, y+1, 9, 9);
 					gc.drawLine(x+1, y+3, x+10, y+3);
 				} else {
-					gc.fillRectangle(x+1, y+4, 5, 4);
-					gc.fillRectangle(x+3, y+1, 5, 4);
 					gc.drawRectangle(x+1, y+4, 5, 4);
 					gc.drawRectangle(x+3, y+1, 5, 4);
 					gc.drawLine(x+3, y+2, x+8, y+2);
@@ -1165,22 +1137,17 @@ public class CTabFolderRenderer {
 	}
 	void drawMinimize(GC gc, Rectangle minRect, int minImageState) {
 		if (minRect.width == 0 || minRect.height == 0) return;
-		Display display = parent.getDisplay();
 		// 5x4 or 9x3
 		int x = minRect.x + (minRect.width - 10)/2;
 		int y = minRect.y + 3;
 
-		gc.setForeground(minMaxBorderColor);
-		gc.setBackground(display.getSystemColor(BUTTON_FILL));
+		gc.setForeground(parent.getForeground());
 
 		switch (minImageState & (SWT.HOT | SWT.SELECTED)) {
 			case SWT.NONE: {
 				if (!parent.getMinimized()) {
-					gc.fillRectangle(x, y, 9, 3);
 					gc.drawRectangle(x, y, 9, 3);
 				} else {
-					gc.fillRectangle(x, y+3, 5, 4);
-					gc.fillRectangle(x+2, y, 5, 4);
 					gc.drawRectangle(x, y+3, 5, 4);
 					gc.drawRectangle(x+2, y, 5, 4);
 					gc.drawLine(x+3, y+1, x+6, y+1);
@@ -1191,11 +1158,8 @@ public class CTabFolderRenderer {
 			case SWT.HOT: {
 				drawRoundRectangle(gc, minRect);
 				if (!parent.getMinimized()) {
-					gc.fillRectangle(x, y, 9, 3);
 					gc.drawRectangle(x, y, 9, 3);
 				} else {
-					gc.fillRectangle(x, y+3, 5, 4);
-					gc.fillRectangle(x+2, y, 5, 4);
 					gc.drawRectangle(x, y+3, 5, 4);
 					gc.drawRectangle(x+2, y, 5, 4);
 					gc.drawLine(x+3, y+1, x+6, y+1);
@@ -1206,11 +1170,8 @@ public class CTabFolderRenderer {
 			case SWT.SELECTED: {
 				drawRoundRectangle(gc, minRect);
 				if (!parent.getMinimized()) {
-					gc.fillRectangle(x+1, y+1, 9, 3);
 					gc.drawRectangle(x+1, y+1, 9, 3);
 				} else {
-					gc.fillRectangle(x+1, y+4, 5, 4);
-					gc.fillRectangle(x+3, y+1, 5, 4);
 					gc.drawRectangle(x+1, y+4, 5, 4);
 					gc.drawRectangle(x+3, y+1, 5, 4);
 					gc.drawLine(x+4, y+2, x+7, y+2);
@@ -1393,9 +1354,17 @@ public class CTabFolderRenderer {
 					}
 				}
 
-				//Highlight MUST be drawn before the outline so that outline can cover it in the right spots (start of swoop)
+				//Highlight colors MUST be drawn before the outline so that outline can cover it in the right spots (start of swoop)
 				//otherwise the curve looks jagged
 				drawHighlight(gc, bounds, state, rightEdge);
+
+				// draw highlight marker of selected tab
+				if (parent.selectionHighlightBarThickness > 0 && parent.simple) {
+					Color previousColor = gc.getBackground();
+					gc.setBackground(item.getDisplay().getSystemColor(parent.shouldHighlight() ? SWT.COLOR_LIST_SELECTION : SWT.COLOR_WIDGET_DISABLED_FOREGROUND));
+					gc.fillRectangle(x + 1 /* outline */, parent.onBottom ? y + height - 1 - parent.selectionHighlightBarThickness : y + 1, width - 2 /*outline*/, parent.selectionHighlightBarThickness);
+					gc.setBackground(previousColor);
+				}
 
 				// draw outline
 				shape[0] = Math.max(0, borderLeft - 1);
@@ -1458,6 +1427,8 @@ public class CTabFolderRenderer {
 
 				// draw a Focus rectangle
 				if (parent.isFocusControl()) {
+					Color orginalForeground = gc.getForeground();
+					Color orginalBackground = gc.getBackground();
 					Display display = parent.getDisplay();
 					if (parent.simple || parent.single) {
 						gc.setBackground(display.getSystemColor(SWT.COLOR_BLACK));
@@ -1467,6 +1438,8 @@ public class CTabFolderRenderer {
 						gc.setForeground(display.getSystemColor(BUTTON_BORDER));
 						gc.drawLine(xDraw, textY+extent.y+1, xDraw+extent.x+1, textY+extent.y+1);
 					}
+					gc.setForeground(orginalForeground);
+					gc.setBackground(orginalBackground);
 				}
 			}
 			if (parent.showClose || item.showClose) drawClose(gc, item.closeRect, item.closeImageState);
@@ -1832,4 +1805,5 @@ public class CTabFolderRenderer {
 	boolean useEllipses() {
 		return parent.simple;
 	}
+
 }

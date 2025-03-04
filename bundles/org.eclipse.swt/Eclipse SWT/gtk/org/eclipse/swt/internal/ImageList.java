@@ -125,7 +125,9 @@ public static long createPixbuf(long surface) {
 		double sy[] = new double[1];
 		Cairo.cairo_surface_get_device_scale(surface, sx, sy);
 		if (sx[0] > 1 && sy[0] > 1){
+			long oldPixbuf = pixbuf;
 			pixbuf = GDK.gdk_pixbuf_scale_simple(pixbuf, width/(int)sx[0], height/(int)sy[0], GDK.GDK_INTERP_BILINEAR);
+			OS.g_object_unref(oldPixbuf);
 		}
 	}
 	return pixbuf;
@@ -253,6 +255,7 @@ public boolean isDisposed () {
 public void put (int index, Image image) {
 	int count = images.length;
 	if (!(0 <= index && index < count)) return;
+	if (images [index] == image) return;
 	if (image != null) {
 		set (index, image);
 	} else {
@@ -278,6 +281,20 @@ void set (int index, Image image) {
 	long surface = convertSurface(image);
 	int w = Cairo.cairo_image_surface_get_width(surface);
 	int h = Cairo.cairo_image_surface_get_height(surface);
+
+	/*SWT Issue 315:
+	 * if device scale returns something other than 1,
+	 * cairo_image_surface_get_width() and ...height() return the scaled
+	 * dimensions since its treating the pixels as display pixels instead of logical pixels
+	 * that surfaces use. This causes a second scaling to occur, which is incorrect.
+	 * Divide w and h by the device scale to return correct dimensions.
+	 */
+	double sx[] = new double[1];
+	double sy[] = new double[1];
+	Cairo.cairo_surface_get_device_scale(image.surface, sx, sy);
+	w /= (int)sx[0];
+	h /= (int)sy[0];
+
 	Rectangle bounds;
 	if (DPIUtil.useCairoAutoScale()) {
 		bounds = image.getBounds();
@@ -296,6 +313,7 @@ void set (int index, Image image) {
 	}
 
 	if (w != width || h != height) {
+		Cairo.cairo_surface_destroy(surface);
 		surface = scaleSurface(image, width, height);
 	}
 
@@ -304,7 +322,6 @@ void set (int index, Image image) {
 		Cairo.cairo_surface_destroy(oldSurface);
 	}
 
-	Cairo.cairo_surface_reference(surface);
 	surfaces [index] = surface;
 	images [index] = image;
 }

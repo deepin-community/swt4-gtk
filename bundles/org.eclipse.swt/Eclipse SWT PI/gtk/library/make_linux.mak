@@ -14,6 +14,10 @@
 
 # Makefile for creating SWT libraries for Linux GTK
 
+# assumes these variables are set in the environment from which make is run
+#	SWT_JAVA_HOME
+#	OUTPUT_DIR
+
 # SWT debug flags for various SWT components.
 #SWT_WEBKIT_DEBUG = -DWEBKIT_DEBUG
 
@@ -41,8 +45,6 @@ endif
 CAIRO_PREFIX = swt-cairo
 ATK_PREFIX = swt-atk
 WEBKIT_PREFIX = swt-webkit
-WEBKIT_EXTENSION_PREFIX=swt-webkit2extension
-CHROMIUM_PREFIX = swt-chromium
 GLX_PREFIX = swt-glx
 
 SWT_LIB = lib$(SWT_PREFIX)-$(WS_PREFIX)-$(SWT_VERSION).so
@@ -52,13 +54,7 @@ CAIRO_LIB = lib$(CAIRO_PREFIX)-$(WS_PREFIX)-$(SWT_VERSION).so
 ATK_LIB = lib$(ATK_PREFIX)-$(WS_PREFIX)-$(SWT_VERSION).so
 GLX_LIB = lib$(GLX_PREFIX)-$(WS_PREFIX)-$(SWT_VERSION).so
 WEBKIT_LIB = lib$(WEBKIT_PREFIX)-$(WS_PREFIX)-$(SWT_VERSION).so
-CHROMIUM_LIB = lib$(CHROMIUM_PREFIX)-$(WS_PREFIX)-$(SWT_VERSION).so
 ALL_SWT_LIBS = $(SWT_LIB) $(AWT_LIB) $(SWTPI_LIB) $(CAIRO_LIB) $(ATK_LIB) $(GLX_LIB) $(WEBKIT_LIB)
-
-# Webkit extension lib has to be put into a separate folder and is treated differently from the other libraries.
-WEBKIT_EXTENSION_LIB = lib$(WEBKIT_EXTENSION_PREFIX)-$(WS_PREFIX)-$(SWT_VERSION).so
-WEBEXTENSION_BASE_DIR = webkitextensions
-WEBEXTENSION_DIR = $(WEBEXTENSION_BASE_DIR)$(maj_ver)$(min_ver)r$(rev)
 
 CAIROCFLAGS = `pkg-config --cflags cairo`
 CAIROLIBS = `pkg-config --libs-only-L cairo` -lcairo
@@ -81,23 +77,14 @@ ATKLIBS = `pkg-config --libs-only-L atk` -latk-1.0
 
 GLXLIBS = -lGL -lGLU -lm
 
-# Uncomment for Native Stats tool
-#NATIVE_STATS = -DNATIVE_STATS
-
 WEBKITLIBS = `pkg-config --libs-only-l gio-2.0`
 WEBKITCFLAGS = `pkg-config --cflags gio-2.0`
-
-WEBKIT_EXTENSION_CFLAGS=`pkg-config --cflags gtk+-3.0 webkit2gtk-web-extension-4.0`
-WEBKIT_EXTENSION_LFLAGS=`pkg-config --libs gtk+-3.0 webkit2gtk-web-extension-4.0`
 
 ifdef SWT_WEBKIT_DEBUG
 # don't use 'webkit2gtk-4.0' in production,  as some systems might not have those libs and we get crashes.
 WEBKITLIBS +=  `pkg-config --libs-only-l webkit2gtk-4.0`
 WEBKITCFLAGS +=  `pkg-config --cflags webkit2gtk-4.0`
 endif
-
-CHROMIUMLIBS = -lchromium_swt_${SWT_VERSION} -L$(CHROMIUM_OUTPUT_DIR)/chromium-$(cef_ver) -Wl,--disable-new-dtags,-rpath,"\$$ORIGIN"
-CHROMIUMCFLAGS = -I$(CHROMIUM_HEADERS)
 
 SWT_OBJECTS = swt.o c.o c_stats.o callback.o
 AWT_OBJECTS = swt_awt.o
@@ -110,17 +97,15 @@ SWTPI_OBJECTS = swt.o os.o os_structs.o os_custom.o os_stats.o $(GTKX_OBJECTS)
 CAIRO_OBJECTS = swt.o cairo.o cairo_structs.o cairo_stats.o
 ATK_OBJECTS = swt.o atk.o atk_structs.o atk_custom.o atk_stats.o
 WEBKIT_OBJECTS = swt.o webkitgtk.o webkitgtk_structs.o webkitgtk_stats.o webkitgtk_custom.o
-CHROMIUM_OBJECTS = chromiumlib.o chromiumlib_structs.o chromiumlib_custom.o chromiumlib_stats.o
 GLX_OBJECTS = swt.o glx.o glx_structs.o glx_stats.o
 
 CFLAGS := $(CFLAGS) \
 		-DSWT_VERSION=$(SWT_VERSION) \
-		$(NATIVE_STATS) \
 		$(SWT_DEBUG) \
 		$(SWT_WEBKIT_DEBUG) \
 		-DLINUX -DGTK \
-		-I$(JAVA_HOME)/include \
-		-I$(JAVA_HOME)/include/linux \
+		-I$(SWT_JAVA_HOME)/include \
+		-I$(SWT_JAVA_HOME)/include/linux \
 		${SWT_PTR_CFLAGS}
 LFLAGS = -shared -fPIC ${SWT_LFLAGS}
 
@@ -221,11 +206,7 @@ atk_stats.o: atk_stats.c atk_structs.h atk_stats.h atk.h
 #
 # WebKit lib
 #
-ifeq ($(BUILD_WEBKIT2EXTENSION),yes)
-make_webkit: $(WEBKIT_LIB) make_webkit2extension
-else
 make_webkit: $(WEBKIT_LIB)
-endif
 
 $(WEBKIT_LIB): $(WEBKIT_OBJECTS)
 	$(CC) $(LFLAGS) -o $(WEBKIT_LIB) $(WEBKIT_OBJECTS) $(WEBKITLIBS)
@@ -241,36 +222,6 @@ webkitgtk_stats.o: webkitgtk_stats.c webkitgtk_stats.h
 
 webkitgtk_custom.o: webkitgtk_custom.c
 	$(CC) $(CFLAGS) $(WEBKITCFLAGS) -c webkitgtk_custom.c
-
-
-# Webkit2 extension is a seperate .so lib.
-make_webkit2extension: $(WEBKIT_EXTENSION_LIB)
-
-$(WEBKIT_EXTENSION_LIB) : webkitgtk_extension.o
-	$(CC) $(LFLAGS) -o $@ $^ $(WEBKIT_EXTENSION_LFLAGS)
-
-webkitgtk_extension.o : webkitgtk_extension.c
-	$(CC) $(CFLAGS) $(WEBKIT_EXTENSION_CFLAGS) ${SWT_PTR_CFLAGS} -fPIC -c $^
-
-#
-# Chromium lib
-#
-chromium: $(CHROMIUM_LIB)
-
-$(CHROMIUM_LIB): $(CHROMIUM_OBJECTS)
-	$(CC) $(LFLAGS) -o $(CHROMIUM_LIB) $(CHROMIUM_OBJECTS) $(CHROMIUMLIBS)	
-
-chromiumlib.o: chromiumlib.c
-	$(CC) $(CFLAGS) $(CHROMIUMCFLAGS) -c chromiumlib.c
-
-chromiumlib_structs.o: chromiumlib_structs.c
-	$(CC) $(CFLAGS) $(CHROMIUMCFLAGS) -c chromiumlib_structs.c
-
-chromiumlib_custom.o: chromiumlib_custom.c
-	$(CC) $(CFLAGS) $(CHROMIUMCFLAGS) -c chromiumlib_custom.c
-
-chromiumlib_stats.o: chromiumlib_stats.c chromiumlib_stats.h
-	$(CC) $(CFLAGS) $(CHROMIUMCFLAGS) -c chromiumlib_stats.c
 
 #
 # GLX lib
@@ -301,25 +252,7 @@ glx_stats.o: glx_stats.c glx_stats.h
 # I hope there are no spaces in the path :-).
 install: all
 	cp $(ALL_SWT_LIBS) $(OUTPUT_DIR)
-ifeq ($(BUILD_WEBKIT2EXTENSION),yes)
-	@# Copy webextension into it's own folder, but create folder first.
-	@# CAREFULLY delete '.so' files inside webextension*. Then carefully remove the directories. 'rm -rf' seemed too risky of an approach.
-	@-[ "$$(ls -d $(OUTPUT_DIR)/$(WEBEXTENSION_BASE_DIR)*/*.so)" ] && rm -v `ls -d $(OUTPUT_DIR)/$(WEBEXTENSION_BASE_DIR)*/*.so`
-	@-[ "$$(ls -d $(OUTPUT_DIR)/$(WEBEXTENSION_BASE_DIR)*)" ] && rmdir -v `ls -d $(OUTPUT_DIR)/$(WEBEXTENSION_BASE_DIR)*`
 
-	@# Copying webextension is not critical for build to succeed, thus we use '-'. SWT can still function without a webextension.
-	@-[ -d $(OUTPUT_DIR)/$(WEBEXTENSION_DIR) ] || mkdir -v $(OUTPUT_DIR)/$(WEBEXTENSION_DIR)  # If folder does not exist, make it.
-	-cp $(WEBKIT_EXTENSION_LIB) $(OUTPUT_DIR)/$(WEBEXTENSION_DIR)/
-endif
-
-chromium_cargo:
-	cd chromium_subp && cargo build --release
-	cd chromium_swt && cargo build --release
-	mkdir -p $(CHROMIUM_OUTPUT_DIR)/chromium-$(cef_ver)
-	cp chromium_subp/target/release/chromium_subp $(CHROMIUM_OUTPUT_DIR)/chromium-$(cef_ver)/chromium_subp-$(SWT_VERSION)
-	cp chromium_swt/target/release/libchromium_swt_$(SWT_VERSION).so $(CHROMIUM_OUTPUT_DIR)/chromium-$(cef_ver)
-chromium_install: chromium
-	cp $(CHROMIUM_LIB) $(CHROMIUM_OUTPUT_DIR)/chromium-$(cef_ver)
 #
 # Clean
 #

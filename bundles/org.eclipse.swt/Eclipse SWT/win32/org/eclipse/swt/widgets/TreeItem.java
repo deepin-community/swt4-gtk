@@ -64,7 +64,8 @@ public class TreeItem extends Item {
  * Constructs <code>TreeItem</code> and <em>inserts</em> it into <code>Tree</code>.
  * Item is inserted as last direct child of the tree.
  * <p>
- * For bulk insert scenarios, see TreeItem#TreeItem(Tree,int,int)
+ * The fastest way to insert many items is documented in {@link TreeItem#TreeItem(Tree,int,int)}
+ * and {@link TreeItem#setItemCount}
  *
  * @param parent a tree control which will be the parent of the new instance (cannot be null)
  * @param style no styles are currently supported, pass SWT.NONE
@@ -82,7 +83,7 @@ public class TreeItem extends Item {
  * @see Widget#getStyle
  */
 public TreeItem (Tree parent, int style) {
-	this (parent, style, OS.TVGN_ROOT, OS.TVI_LAST, 0);
+	this (parent, style, OS.TVI_ROOT, OS.TVI_LAST, 0);
 }
 
 /**
@@ -93,6 +94,7 @@ public TreeItem (Tree parent, int style) {
  * <ol>
  * <li>Use {@link Tree#setRedraw} to disable drawing during bulk insert</li>
  * <li>Insert every item at index 0 (insert them in reverse to get the same result)</li>
+ * <li>Collapse the parent item before inserting (gives massive improvement on Windows)</li>
  * </ol>
  *
  * @param parent a tree control which will be the parent of the new instance (cannot be null)
@@ -114,14 +116,15 @@ public TreeItem (Tree parent, int style) {
  * @see Tree#setRedraw
  */
 public TreeItem (Tree parent, int style, int index) {
-	this (parent, style, OS.TVGN_ROOT, findPrevious (parent, index), 0);
+	this (parent, style, OS.TVI_ROOT, findPrevious (parent, index), 0);
 }
 
 /**
  * Constructs <code>TreeItem</code> and <em>inserts</em> it into <code>Tree</code>.
  * Item is inserted as last direct child of the specified <code>TreeItem</code>.
  * <p>
- * For bulk insert scenarios, see TreeItem#TreeItem(TreeItem,int,int)
+ * The fastest way to insert many items is documented in {@link TreeItem#TreeItem(Tree,int,int)}
+ * and {@link TreeItem#setItemCount}
  *
  * @param parentItem a tree control which will be the parent of the new instance (cannot be null)
  * @param style no styles are currently supported, pass SWT.NONE
@@ -146,12 +149,8 @@ public TreeItem (TreeItem parentItem, int style) {
  * Constructs <code>TreeItem</code> and <em>inserts</em> it into <code>Tree</code>.
  * Item is inserted as <code>index</code> direct child of the specified <code>TreeItem</code>.
  * <p>
- * The fastest way to insert many items is:
- * <ol>
- * <li>Use {@link Tree#setRedraw} to disable drawing during bulk insert</li>
- * <li>Insert child items while parent item is collapsed</li>
- * <li>Insert every item at index 0 (insert them in reverse to get the same result)</li>
- * </ol>
+ * The fastest way to insert many items is documented in {@link TreeItem#TreeItem(Tree,int,int)}
+ * and {@link TreeItem#setItemCount}
  *
  * @param parentItem a tree control which will be the parent of the new instance (cannot be null)
  * @param style no styles are currently supported, pass SWT.NONE
@@ -431,7 +430,7 @@ RECT getBounds (int index, boolean getText, boolean getImage, boolean fullText, 
 	long hwndHeader = parent.hwndHeader;
 	if (hwndHeader != 0) {
 		columnCount = parent.columnCount;
-		firstColumn = index == OS.SendMessage (hwndHeader, OS.HDM_ORDERTOINDEX, 0, 0);
+		firstColumn = index == parent.getFirstColumnIndex();
 	}
 	RECT rect = new RECT ();
 	if (firstColumn) {
@@ -450,12 +449,14 @@ RECT getBounds (int index, boolean getText, boolean getImage, boolean fullText, 
 		}
 		if (fullText || fullImage || clip) {
 			if (hwndHeader != 0) {
-				RECT headerRect = new RECT ();
+				RECT headerRect;
 				if (columnCount != 0) {
-					if (OS.SendMessage (hwndHeader, OS.HDM_GETITEMRECT, index, headerRect) == 0) {
-						return new RECT ();
+					headerRect = parent.getColumnRect(index);
+					if (headerRect == null) {
+						return new RECT();
 					}
 				} else {
+					headerRect = new RECT ();
 					headerRect.right = parent.scrollWidth;
 					if (headerRect.right == 0) headerRect = rect;
 				}
@@ -468,8 +469,8 @@ RECT getBounds (int index, boolean getText, boolean getImage, boolean fullText, 
 		}
 	} else {
 		if (!(0 <= index && index < columnCount)) return new RECT ();
-		RECT headerRect = new RECT ();
-		if (OS.SendMessage (hwndHeader, OS.HDM_GETITEMRECT, index, headerRect) == 0) {
+		RECT headerRect = parent.getColumnRect(index);
+		if (headerRect == null) {
 			return new RECT ();
 		}
 		if (!OS.TreeView_GetItemRect (hwnd, handle, rect, false)) {
@@ -562,7 +563,6 @@ public boolean getChecked () {
 /**
  * Returns <code>true</code> if the receiver is expanded,
  * and false otherwise.
- * <p>
  *
  * @return the expanded state
  *
@@ -1031,7 +1031,7 @@ public void removeAll () {
 	/**
 	 * Performance optimization, switch off redraw for high amount of elements
 	 */
-	boolean disableRedraw = parent.itemCount > 30;
+	boolean disableRedraw = parent.cachedItemCount > 30;
 	if (disableRedraw) {
 		parent.setRedraw(false);
 	}
@@ -1133,7 +1133,6 @@ public void setBackground (int index, Color color) {
 
 /**
  * Sets the checked state of the receiver.
- * <p>
  *
  * @param checked the new checked state
  *
@@ -1180,7 +1179,6 @@ public void setChecked (boolean checked) {
 
 /**
  * Sets the expanded state of the receiver.
- * <p>
  *
  * @param expanded the new expanded state
  *
@@ -1698,6 +1696,12 @@ public void setImage (Image image) {
 
 /**
  * Sets the number of child items contained in the receiver.
+ * <p>
+ * The fastest way to insert many items is:
+ * <ol>
+ * <li>Use {@link Tree#setRedraw} to disable drawing during bulk insert</li>
+ * <li>Collapse the parent item before inserting (gives massive improvement on Windows)</li>
+ * </ol>
  *
  * @param count the number of items
  *
@@ -1711,9 +1715,7 @@ public void setImage (Image image) {
 public void setItemCount (int count) {
 	checkWidget ();
 	count = Math.max (0, count);
-	long hwnd = parent.handle;
-	long hItem = OS.SendMessage (hwnd, OS.TVM_GETNEXTITEM, OS.TVGN_CHILD, handle);
-	parent.setItemCount (count, handle, hItem);
+	parent.setItemCount (count, handle);
 }
 
 /**

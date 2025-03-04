@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2021 Syntevo and others.
+ * Copyright (c) 2021, 2023 Syntevo and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -13,10 +13,15 @@
  *******************************************************************************/
 package org.eclipse.swt.internal.gtk4;
 
+import org.eclipse.swt.internal.gtk.*;
+
 /**
  * This class contains native functions that are present in GTK4 only.
  */
 public class GTK4 {
+
+	public static final int GTK_POPOVER_MENU_NESTED = 1 << 0;
+
 	/**
 	 * @param context cast=(GtkIMContext *)
 	 * @param event cast=(GdkEvent *)
@@ -102,6 +107,11 @@ public class GTK4 {
 	public static final native void gtk_check_button_set_active(long check_button, boolean setting);
 	/** @param check_button cast=(GtkCheckButton *) */
 	public static final native boolean gtk_check_button_get_active(long check_button);
+
+	/** @param editable cast=(GtkEditable *) */
+	public static final native long gtk_editable_get_text(long editable);
+	/** @param editable cast=(GtkEditable *) */
+	public static final native long gtk_editable_get_delegate(long editable);
 
 	/* GtkPicture */
 	public static final native long gtk_picture_new();
@@ -197,9 +207,13 @@ public class GTK4 {
 	/* GtkWindow */
 	public static final native long gtk_window_new();
 	/** @param window cast=(GtkWindow *) */
+	public static final native void gtk_window_maximize(long window);
+	/** @param window cast=(GtkWindow *) */
 	public static final native void gtk_window_minimize(long window);
 	/** @param window cast=(GtkWindow *) */
 	public static final native void gtk_window_unminimize(long window);
+	/** @param window cast=(GtkWindow *) */
+	public static final native boolean gtk_window_is_maximized(long window);
 	/**
 	 * @param window cast=(GtkWindow *)
 	 * @param default_widget cast=(GtkWidget *)
@@ -263,6 +277,18 @@ public class GTK4 {
 	/* GtkText */
 	/** @param self cast=(GtkText *) */
 	public static final native long gtk_text_get_buffer(long self);
+	/** @param self cast=(GtkText *) */
+	public static final native void gtk_text_set_visibility(long self, boolean visible);
+	/**
+	 * @param self cast=(GtkText *)
+	 * @param text cast=(const gchar *)
+	 */
+	public static final native void gtk_text_set_placeholder_text(long self, byte[] text);
+	/**
+	 * @param entry cast=(GtkText *)
+	 * @param tabs cast=(PangoTabArray *)
+	 */
+	public static final native void gtk_text_set_tabs(long entry, long tabs);
 
 	/* GtkPopoverMenu */
 	/**
@@ -291,12 +317,17 @@ public class GTK4 {
 	 * @param self cast=(GtkIconTheme *)
 	 * @param icon_name cast=(const char *)
 	 * @param fallbacks cast=(const char **)
-	 * @param size cast=(gint)
-	 * @param scale cast=(gint)
 	 * @param direction cast=(GtkTextDirection)
 	 * @param flags cast=(GtkIconLookupFlags)
 	 */
 	public static final native long gtk_icon_theme_lookup_icon(long self, byte[] icon_name, long fallbacks, int size, int scale, int direction, int flags);
+	/**
+	 * @param self cast=(GtkIconTheme *)
+	 * @param icon cast=(GIcon *)
+	 * @param direction cast=(GtkTextDirection)
+	 * @param flags cast=(GtkIconLookupFlags)
+	 */
+	public static final native long gtk_icon_theme_lookup_by_gicon(long self, long icon, int size, int scale, int direction, int flags);
 
 	/* GtkNative */
 	/** @param self cast=(GtkNative *) */
@@ -310,6 +341,8 @@ public class GTK4 {
 	public static final native void gtk_entry_set_buffer(long entry, long buffer);
 	/** @param entry cast=(GtkEntry *) */
 	public static final native long gtk_entry_get_buffer(long entry);
+	/** @param entry cast=(GtkEntry *) */
+	public static final native int gtk_entry_get_text_length(long entry);
 
 	/* GtkExpander */
 	/**
@@ -322,6 +355,8 @@ public class GTK4 {
 	public static final native long gtk_event_controller_focus_new();
 	/** @param controller cast=(GtkEventController *) */
 	public static final native long gtk_event_controller_get_current_event(long controller);
+	/** @param controller cast=(GtkEventController *) */
+	public static final native int gtk_event_controller_get_current_event_state(long controller);
 	public static final native long gtk_event_controller_key_new();
 	public static final native long gtk_event_controller_motion_new();
 	/** @param flag cast=(GtkEventControllerScrollFlags) */
@@ -407,6 +442,18 @@ public class GTK4 {
 	public static final native void gtk_widget_class_add_binding_signal(long widget_class, int keyval, int mods, byte[] signal, byte[] format_string, boolean arg1, boolean arg2, boolean arg3);
 	/** @param widget cast=(GtkWidget *) */
 	public static final native boolean gtk_widget_get_receives_default(long widget);
+	/**
+	 * @param widget cast=(GtkWidget *)
+	 * @param focusable cast=(gboolean)
+	 */
+	public static final native void gtk_widget_set_focusable(long widget, boolean focusable);
+	/** @param widget cast=(GtkWidget *) */
+	public static final native long gtk_widget_get_clipboard(long widget);
+	/**
+	 * @param widget cast=(GtkWidget *)
+	 * @param allocation cast=(GtkAllocation *),flags=no_out
+	 */
+	public static final native void gtk_widget_size_allocate(long widget, GtkAllocation allocation, int baseline);
 
 	/* GtkComboBox */
 	/** @param combo_box cast=(GtkComboBox *) */
@@ -427,6 +474,11 @@ public class GTK4 {
 	public static final native void gtk_image_set_from_paintable(long image, long paintable);
 	/** @param icon_name cast=(const char *) */
 	public static final native long gtk_image_new_from_icon_name(byte[] icon_name);
+	/**
+	 * @param image cast=(GtkImage *)
+	 * @param icon_name cast=(const gchar *)
+	 */
+	public static final native void gtk_image_set_from_icon_name(long image, byte[] icon_name);
 	/** @param image cast=(GtkImage *) */
 	public static final native void gtk_image_clear(long image);
 
@@ -437,4 +489,125 @@ public class GTK4 {
 	 * @param length cast=(gssize)
 	 */
 	public static final native void gtk_css_provider_load_from_data(long css_provider, byte[] data, long length);
+
+	/* GtkLabel */
+	/**
+	 * @param label cast=(GtkLabel *)
+	 * @param wrap cast=(gboolean)
+	 */
+	public static final native void gtk_label_set_wrap(long label, boolean wrap);
+	/**
+	 * @param label cast=(GtkLabel *)
+	 * @param wrap_mode cast=(PangoWrapMode)
+	 */
+	public static final native void gtk_label_set_wrap_mode(long label, int wrap_mode);
+
+	/* GtkStyleContext */
+	/**
+	 * @param display cast=(GdkDisplay *)
+	 * @param provider cast=(GtkStyleProvider *)
+	 * @param priority cast=(guint)
+	 */
+	public static final native void gtk_style_context_add_provider_for_display(long display, long provider, int priority);
+	/**
+	 * @param context cast=(GtkStyleContext *)
+	 * @param color cast=(GdkRGBA *)
+	 */
+	public static final native void gtk_style_context_get_color(long context, GdkRGBA color);
+	/**
+	 * @param context cast=(GtkStyleContext *)
+	 * @param padding cast=(GtkBorder *),flags=no_in
+	 */
+	public static final native void gtk_style_context_get_padding(long context, GtkBorder padding);
+	/**
+	 * @param context cast=(GtkStyleContext *)
+	 * @param margin cast=(GtkBorder *),flags=no_in
+	 */
+	public static final native void gtk_style_context_get_margin(long context, GtkBorder margin);
+	/**
+	 * @param context cast=(GtkStyleContext *)
+	 * @param padding cast=(GtkBorder *),flags=no_in
+	 */
+	public static final native void gtk_style_context_get_border(long context, GtkBorder padding);
+
+	/* GtkMenuButton */
+	/** @param menu_button cast=(GtkMenuButton *) */
+	public static final native void gtk_menu_button_set_use_underline(long menu_button, boolean use_underline);
+
+	/* GtkTreeViewColumn */
+	/**
+	 * @param tree_column cast=(GtkTreeViewColumn *)
+	 * @param x_offset cast=(int *)
+	 * @param y_offset cast=(int *)
+	 * @param width cast=(int *)
+	 * @param height cast=(int *)
+	 */
+	public static final native void gtk_tree_view_column_cell_get_size(long tree_column, int[] x_offset, int[] y_offset, int[] width, int[] height);
+
+	/* GdkToplevelSize */
+	/**
+	 * @param size cast=(GdkToplevelSize*)
+	 * @param bounds_width cast=(int *)
+	 * @param bounds_height cast=(int *)
+	 */
+	public static final native void gdk_toplevel_size_get_bounds(long size, int[] bounds_width, int[] bounds_height);
+	/**
+	 * @param size cast=(GdkToplevelSize*)
+	 * @param min_width cast=(int)
+	 * @param min_height cast=(int)
+	 */
+	public static final native void gdk_toplevel_size_set_min_size(long size, int min_width, int min_height);
+	/**
+	 * @param size cast=(GdkToplevelSize*)
+	 * @param width cast=(int)
+	 * @param height cast=(int)
+	 */
+	public static final native void gdk_toplevel_size_set_size(long size, int width, int height);
+
+	/* GdkClipboard */
+	/**
+	 * @param clipboard cast=(GdkClipboard*)
+	 * @param text cast=(const char *)
+	 */
+	public static final native void gdk_clipboard_set_text(long clipboard, byte[] text);
+	/**
+	 * @param clipboard cast=(GdkClipboard*)
+	 * @param type cast=(GType)
+	 */
+	public static final native void gdk_clipboard_set(long clipboard, long type, long data);
+	/**
+	 * @param clipboard cast=(GdkClipboard*)
+	 * @param provider cast=(GdkContentProvider*)
+	 */
+	public static final native boolean gdk_clipboard_set_content(long clipboard, long provider);
+	/**
+	 * @param clipboard cast=(GdkClipboard*)
+	 */
+	public static final native long gdk_clipboard_get_formats(long clipboard);
+	/**
+	 * @param clipboard cast=(GdkClipboard*)
+	 */
+	public static final native long gdk_clipboard_get_content(long clipboard);
+	/**
+	 * @param provider cast=(GdkContentProvider *)
+	 * @param value cast=(GValue *)
+	 * @param error cast=(GError **)
+	 */
+	public static final native boolean gdk_content_provider_get_value(long provider, long value, long[] error);
+	/**
+	 * @param type cast=(GType)
+	 */
+	public static final native long gdk_content_provider_new_typed(long type, long data);
+	/**
+	 * @param value cast=(const GValue*)
+	 */
+	public static final native long gdk_content_provider_new_for_value(long value);
+	/**
+	 * @param providers cast=(GdkContentProvider **)
+	 * @param n_providers cast=(gsize)
+	 */
+	public static final native long gdk_content_provider_new_union(long[] providers, int n_providers);
+	/** @param formats cast=(GdkContentFormats *) */
+	public static final native long gdk_content_formats_to_string(long formats);
+
 }

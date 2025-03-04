@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2021 IBM Corporation and others.
+ * Copyright (c) 2000, 2022 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -21,6 +21,11 @@
 
 #ifndef COM_NATIVE
 #define COM_NATIVE(func) Java_org_eclipse_swt_internal_ole_win32_COM_##func
+#endif
+
+#ifdef _WIN32
+  /* Many methods don't use their 'env' and 'that' arguments */
+  #pragma warning (disable: 4100)
 #endif
 
 #ifndef NO_CAUUID_1sizeof
@@ -1091,6 +1096,18 @@ JNIEXPORT jint JNICALL COM_NATIVE(VtblCall__IJ)
 }
 #endif
 
+#ifndef NO_VtblCall__IJD
+JNIEXPORT jint JNICALL COM_NATIVE(VtblCall__IJD)
+	(JNIEnv *env, jclass that, jint arg0, jlong arg1, jdouble arg2)
+{
+	jint rc = 0;
+	COM_NATIVE_ENTER(env, that, VtblCall__IJD_FUNC);
+	rc = (jint)((jint (STDMETHODCALLTYPE *)(jlong, jdouble))(*(jlong **)arg1)[arg0])(arg1, arg2);
+	COM_NATIVE_EXIT(env, that, VtblCall__IJD_FUNC);
+	return rc;
+}
+#endif
+
 #ifndef NO_VtblCall__IJI
 JNIEXPORT jint JNICALL COM_NATIVE(VtblCall__IJI)
 	(JNIEnv *env, jclass that, jint arg0, jlong arg1, jint arg2)
@@ -2118,6 +2135,34 @@ fail:
 	if (arg3 && lparg3) (*env)->ReleaseCharArrayElements(env, arg3, lparg3, 0);
 	if (arg2 && lparg2) (*env)->ReleaseCharArrayElements(env, arg2, lparg2, 0);
 	COM_NATIVE_EXIT(env, that, VtblCall__IJ_3C_3CJ_3C_3J_FUNC);
+	return rc;
+}
+#endif
+
+#ifndef NO_VtblCall__IJ_3C_3C_3C_3C_3J
+JNIEXPORT jint JNICALL COM_NATIVE(VtblCall__IJ_3C_3C_3C_3C_3J)
+	(JNIEnv *env, jclass that, jint arg0, jlong arg1, jcharArray arg2, jcharArray arg3, jcharArray arg4, jcharArray arg5, jlongArray arg6)
+{
+	jchar *lparg2=NULL;
+	jchar *lparg3=NULL;
+	jchar *lparg4=NULL;
+	jchar *lparg5=NULL;
+	jlong *lparg6=NULL;
+	jint rc = 0;
+	COM_NATIVE_ENTER(env, that, VtblCall__IJ_3C_3C_3C_3C_3J_FUNC);
+	if (arg2) if ((lparg2 = (*env)->GetCharArrayElements(env, arg2, NULL)) == NULL) goto fail;
+	if (arg3) if ((lparg3 = (*env)->GetCharArrayElements(env, arg3, NULL)) == NULL) goto fail;
+	if (arg4) if ((lparg4 = (*env)->GetCharArrayElements(env, arg4, NULL)) == NULL) goto fail;
+	if (arg5) if ((lparg5 = (*env)->GetCharArrayElements(env, arg5, NULL)) == NULL) goto fail;
+	if (arg6) if ((lparg6 = (*env)->GetLongArrayElements(env, arg6, NULL)) == NULL) goto fail;
+	rc = (jint)((jint (STDMETHODCALLTYPE *)(jlong, jchar *, jchar *, jchar *, jchar *, jlong *))(*(jlong **)arg1)[arg0])(arg1, lparg2, lparg3, lparg4, lparg5, lparg6);
+fail:
+	if (arg6 && lparg6) (*env)->ReleaseLongArrayElements(env, arg6, lparg6, 0);
+	if (arg5 && lparg5) (*env)->ReleaseCharArrayElements(env, arg5, lparg5, 0);
+	if (arg4 && lparg4) (*env)->ReleaseCharArrayElements(env, arg4, lparg4, 0);
+	if (arg3 && lparg3) (*env)->ReleaseCharArrayElements(env, arg3, lparg3, 0);
+	if (arg2 && lparg2) (*env)->ReleaseCharArrayElements(env, arg2, lparg2, 0);
+	COM_NATIVE_EXIT(env, that, VtblCall__IJ_3C_3C_3C_3C_3J_FUNC);
 	return rc;
 }
 #endif

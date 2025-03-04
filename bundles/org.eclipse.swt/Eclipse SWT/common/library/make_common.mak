@@ -1,5 +1,5 @@
 #*******************************************************************************
-# Copyright (c) 2000, 2018 IBM Corporation and others.
+# Copyright (c) 2000, 2022 IBM Corporation and others.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Eclipse Public License 2.0
@@ -13,7 +13,6 @@
 #*******************************************************************************
 
 maj_ver=4
-min_ver=944
-rev=26
-comma_ver=4,944,26,0
-cef_ver=3071
+min_ver=962
+rev=3
+comma_ver=4,962,3,0
