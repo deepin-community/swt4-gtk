@@ -6,7 +6,7 @@ Subject: [PATCH] Search for JNI libraries in Debian location /usr/lib/jni
 This allows Sun/Oracle JRE to find the libraries.
 --- a/bundles/org.eclipse.swt/Eclipse SWT PI/common/org/eclipse/swt/internal/Library.java	
 +++ b/bundles/org.eclipse.swt/Eclipse SWT PI/common/org/eclipse/swt/internal/Library.java	
-@@ -311,6 +311,10 @@ public static void loadLibrary (String name, boolean mapName) {
+@@ -309,6 +309,10 @@
  		if ((i == 0 || mapName) && load (libNames[i], message)) return;
  	}
  

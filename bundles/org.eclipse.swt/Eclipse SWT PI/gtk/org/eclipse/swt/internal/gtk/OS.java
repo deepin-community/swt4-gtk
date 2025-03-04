@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2021 IBM Corporation and others. All rights reserved.
+ * Copyright (c) 2000, 2022 IBM Corporation and others. All rights reserved.
  * The contents of this file are made available under the terms
  * of the GNU Lesser General Public License (LGPL) Version 2.1 that
  * accompanies this distribution (lgpl-v21.txt).  The LGPL is also
@@ -13,7 +13,6 @@
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 package org.eclipse.swt.internal.gtk;
-
 
 import java.util.*;
 
@@ -87,12 +86,14 @@ public class OS extends C {
 			try {
 				Library.loadLibrary("swt-pi4");
 			} catch (Throwable e) {
+				System.err.println("SWT OS.java Error: Failed to load swt-pi4, loading swt-pi3 as fallback.");
 				Library.loadLibrary("swt-pi3");
 			}
 		} else {
 			try {
 				Library.loadLibrary("swt-pi3");
 			} catch (Throwable e) {
+				System.err.println("SWT OS.java Error: Failed to load swt-pi3, loading swt-pi4 as fallback.");
 				Library.loadLibrary("swt-pi4");
 			}
 		}
@@ -144,6 +145,7 @@ public class OS extends C {
 	}
 
 	/** Constants */
+	public static final int G_FILE_ERROR_IO = 21;
 	public static final int G_FILE_TEST_IS_DIR = 1 << 2;
 	public static final int G_FILE_TEST_IS_EXECUTABLE = 1 << 3;
 	public static final int G_SIGNAL_MATCH_DATA = 1 << 4;
@@ -153,6 +155,7 @@ public class OS extends C {
 	public static final int G_LOG_LEVEL_MASK = 0xfffffffc;
 	public static final int G_APP_INFO_CREATE_NONE = 0;
 	public static final int G_APP_INFO_CREATE_SUPPORTS_URIS  = (1 << 1);
+	public static final int GTK_TYPE_TEXT_BUFFER = 21;
 	public static final int PANGO_ALIGN_LEFT = 0;
 	public static final int PANGO_ALIGN_CENTER = 1;
 	public static final int PANGO_ALIGN_RIGHT = 2;
@@ -209,11 +212,6 @@ public class OS extends C {
 	public static final int G_DBUS_PROXY_FLAGS_DO_NOT_AUTO_START = 3;
 
 	public static final int G_DBUS_CALL_FLAGS_NONE = 0;
-	public static final int G_DBUS_CALL_FLAGS_NO_AUTO_START = (1<<0);
-
-	public static final int G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT = 1;
-
-	public static final int G_DBUS_SERVER_FLAGS_NONE = 0;
 
 	/**
 	 * DBus Data types as defined by:
@@ -269,10 +267,9 @@ public class OS extends C {
 
 
 	/** Signals */
-	public static final byte[] accel_closures_changed = ascii("accel-closures-changed");		// Gtk2,3,4
+	public static final byte[] accel_closures_changed = ascii("accel-closures-changed");		// Gtk3,4
 	public static final byte[] activate = ascii("activate");	// ?
-	public static final byte[] angle_changed = ascii("angle_changed");	// Gtk3/4, Guesture related.
-	public static final byte[] authorize_authenticated_peer = ascii("authorize-authenticated-peer");
+	public static final byte[] angle_changed = ascii("angle-changed");	// Gtk3/4, Guesture related.
 	public static final byte[] backspace = ascii("backspace");
 	public static final byte[] begin = ascii("begin");
 	public static final byte[] button_press_event = ascii("button-press-event");
@@ -294,14 +291,14 @@ public class OS extends C {
 	public static final byte[] delete_text = ascii("delete-text");
 	public static final byte[] direction_changed = ascii("direction-changed");
 	public static final byte[] dpi_changed = ascii("notify::scale-factor");
-	public static final byte[] drag_begin = ascii("drag_begin");
-	public static final byte[] drag_data_delete = ascii("drag_data_delete");
-	public static final byte[] drag_data_get = ascii("drag_data_get");
-	public static final byte[] drag_data_received = ascii("drag_data_received");
-	public static final byte[] drag_drop = ascii("drag_drop");
-	public static final byte[] drag_end = ascii("drag_end");
-	public static final byte[] drag_leave = ascii("drag_leave");
-	public static final byte[] drag_motion = ascii("drag_motion");
+	public static final byte[] drag_begin = ascii("drag-begin");
+	public static final byte[] drag_data_delete = ascii("drag-data-delete");
+	public static final byte[] drag_data_get = ascii("drag-data-get");
+	public static final byte[] drag_data_received = ascii("drag-data-received");
+	public static final byte[] drag_drop = ascii("drag-drop");
+	public static final byte[] drag_end = ascii("drag-end");
+	public static final byte[] drag_leave = ascii("drag-leave");
+	public static final byte[] drag_motion = ascii("drag-motion");
 	public static final byte[] prepare = ascii("prepare");
 	public static final byte[] draw = ascii("draw");
 	public static final byte[] end = ascii("end");
@@ -338,7 +335,6 @@ public class OS extends C {
 	public static final byte[] motion = ascii("motion");
 	public static final byte[] move_cursor = ascii("move-cursor");
 	public static final byte[] move_focus = ascii("move-focus");
-	public static final byte[] new_connection = ascii("new-connection");
 	public static final byte[] output = ascii("output");
 	public static final byte[] paste_clipboard = ascii("paste-clipboard");
 	public static final byte[] pressed = ascii("pressed");
@@ -347,13 +343,10 @@ public class OS extends C {
 	public static final byte[] popup_menu = ascii("popup-menu");
 	public static final byte[] populate_popup = ascii("populate-popup");
 	public static final byte[] preedit_changed = ascii("preedit-changed");
-	public static final byte[] property_notify_event = ascii("property-notify-event");
 	public static final byte[] realize = ascii("realize");
 	public static final byte[] row_activated = ascii("row-activated");
 	public static final byte[] row_changed = ascii("row-changed");
 	public static final byte[] row_has_child_toggled = ascii("row-has-child-toggled");
-	public static final byte[] row_inserted = ascii("row-inserted");
-	public static final byte[] row_deleted = ascii("row-deleted");
 	public static final byte[] scale_changed = ascii("scale-changed");
 	public static final byte[] scroll_child = ascii("scroll-child");
 	public static final byte[] scroll_event = ascii("scroll-event");
@@ -375,8 +368,13 @@ public class OS extends C {
 	public static final byte[] value_changed = ascii("value-changed");
 	public static final byte[] window_state_event = ascii("window-state-event");
 	public static final byte[] notify_state = ascii("notify::state");
+	public static final byte[] notify_default_height = ascii("notify::default-height");
+	public static final byte[] notify_default_width = ascii("notify::default-width");
+	public static final byte[] notify_maximized = ascii("notify::maximized");
+	public static final byte[] notify_is_active = ascii("notify::is-active");
 	public static final byte[] notify_theme_change = ascii("notify::gtk-application-prefer-dark-theme");
 	public static final byte[] response = ascii("response");
+	public static final byte[] compute_size = ascii("compute-size");
 
 	/** Properties */
 	public static final byte[] active = ascii("active");
@@ -700,6 +698,10 @@ public static int VERSION(int major, int minor, int micro) {
 	return (major << 16) + (minor << 8) + micro;
 }
 
+public static boolean isWayland () {
+	return !isX11 ();
+}
+
 public static boolean isX11 () {
 	return OS.GDK_WINDOWING_X11() && GDK.GDK_IS_X11_DISPLAY(GDK.gdk_display_get_default());
 }
@@ -707,6 +709,7 @@ public static boolean isX11 () {
 /** 64 bit */
 public static final native int GPollFD_sizeof ();
 public static final native int GTypeInfo_sizeof ();
+public static final native int GValue_sizeof();
 public static final native int PangoAttribute_sizeof();
 public static final native int PangoAttrColor_sizeof();
 public static final native int PangoAttrInt_sizeof();
@@ -896,6 +899,12 @@ public static final native boolean g_app_info_supports_uris(long appInfo);
  * @param error cast=(GError *)
  */
 public static final native long g_error_get_message(long error);
+/**
+ * @param error cast=(const GError *)
+ * @param domain cast=(GQuark)
+ * @param code cast=(gint)
+ */
+public static final native boolean g_error_matches(long error, int domain, int code);
 
 /**
  * @param gerror cast=(GError *)
@@ -912,13 +921,7 @@ public static final native boolean g_content_type_equals(long type1, byte[] type
  * @param supertype cast=(gchar *)
  */
 public static final native boolean g_content_type_is_a(long type, byte[] supertype);
-public static final native long g_credentials_new();
-/**
- * @param credentials cast=(GCredentials *)
- * @param other_credentials cast=(GCredentials *)
- * @param error cast=(GError **)
- */
-public static final native boolean g_credentials_is_same_user(long credentials, long other_credentials, long [] error);
+public static final native int g_file_error_quark();
 /**
  * @param info cast=(GFileInfo *)
  */
@@ -1039,6 +1042,8 @@ public static final native long g_filename_from_utf8(long opsysstring, long len,
 public static final native long g_filename_from_uri(long uri, long [] hostname, long [] error);
 /** @param mem cast=(gpointer) */
 public static final native void g_free(long mem);
+/** @method accessor=g_free,flags=const address */
+public static final native long addressof_g_free();
 /**
  * @param variable cast=(const gchar *),flags=no_out
  */
@@ -1048,7 +1053,6 @@ public static final native long g_getenv(byte [] variable);
  * @param result cast=(GTimeVal *)
  */
 public static final native void g_get_current_time(long result);
-public static final native long g_get_user_name();
 /**
  * @method flags=ignore_deprecations
  * @param result cast=(GTimeVal *)
@@ -1247,7 +1251,7 @@ public static final native void g_signal_emit_by_name(long instance, byte[] deta
  * @param instance cast=(gpointer)
  * @param handler_id cast=(gulong)
  */
-public static final native void g_signal_handler_disconnect(long instance, int handler_id);
+public static final native void g_signal_handler_disconnect(long instance, long handler_id);
 /**
  * @param instance cast=(gpointer)
  * @param mask cast=(GSignalMatchType)
@@ -1297,19 +1301,6 @@ public static final native void g_strfreev(long string_array);
  * @param endptr cast=(gchar **)
  */
 public static final native double g_strtod(long str, long [] endptr);
-/**
- * @param str cast=(const gchar *)
- * @param str2 cast=(const gchar *)
- * @param str3 cast=(const gchar *)
- * @param terminator cast=(const gchar *),flags=sentinel
- */
-public static final native long g_strconcat(long str, long str2, long str3, long terminator);
-/**
- * @param str cast=(const gchar *)
- * @param str2 cast=(const gchar *)
- * @param terminator cast=(const gchar *),flags=sentinel
- */
-public static final native long g_strconcat(long str, long str2, long terminator);
 /** @param str cast=(char *) */
 public static final native long g_strdup (long str);
 /** @param g_class cast=(GType) */
@@ -1388,6 +1379,14 @@ public static final native void g_value_set_float (long value, float v);
 public static final native long g_value_get_int64 (long value);
 /** @param value cast=(GValue *) */
 public static final native void g_value_set_int64 (long value, long v);
+/** @param value cast=(GValue *)
+ *  @param v_string cast =(const gchar *)
+ * */
+public static final native void g_value_set_string (long value, byte[] v_string);
+/** @param value cast=(GValue *) */
+public static final native long g_value_get_string (long value);
+/** @param value cast=(GValue *) */
+public static final native long g_value_get_object (long value);
 /** @param value cast=(GValue *) */
 public static final native void g_value_unset (long value);
 /** @param value cast=(const GValue *) */
@@ -1423,25 +1422,7 @@ public static final native void memmove(long dest, GTypeInfo src, int size);
  * @param src cast=(const void *),flags=no_out
  * @param size cast=(size_t)
  */
-public static final native void memmove(long dest, GtkTargetEntry src, long size);
-/**
- * @param dest cast=(void *)
- * @param src cast=(const void *),flags=no_out
- * @param size cast=(size_t)
- */
 public static final native void memmove(long dest, GdkRGBA src, long size);
-/**
- * @param dest cast=(void *)
- * @param src cast=(const void *),flags=no_out
- * @param size cast=(size_t)
- */
-public static final native void memmove(long dest, GdkEventButton src, long size);
-/**
- * @param dest cast=(void *)
- * @param src cast=(const void *),flags=no_out
- * @param size cast=(size_t)
- */
-public static final native void memmove(long dest, GdkEventKey src, long size);
 /** @param src flags=no_out */
 public static final native void memmove(long dest, GtkWidgetClass src);
 /**
@@ -1470,42 +1451,6 @@ public static final native void memmove(GdkKeymapKey dest, long src, long size);
  * @param size cast=(size_t)
  */
 public static final native void memmove(GdkRGBA dest, long src, long size);
-/**
- * @param dest cast=(void *),flags=no_in
- * @param src cast=(const void *)
- * @param size cast=(size_t)
- */
-public static final native void memmove(GdkEventButton dest, long src, long size);
-/**
- * @param dest cast=(void *),flags=no_in
- * @param src cast=(const void *)
- * @param size cast=(size_t)
- */
-public static final native void memmove(GdkEventCrossing dest, long src, long size);
-/**
- * @param dest cast=(void *),flags=no_in
- * @param src cast=(const void *)
- * @param size cast=(size_t)
- */
-public static final native void memmove(GdkEventFocus dest, long src, long size);
-/**
- * @param dest cast=(void *),flags=no_in
- * @param src cast=(const void *)
- * @param size cast=(size_t)
- */
-public static final native void memmove(GdkEventKey dest, long src, long size);
-/**
- * @param dest cast=(void *),flags=no_in
- * @param src cast=(const void *)
- * @param size cast=(size_t)
- */
-public static final native void memmove(GdkEventMotion dest, long src, long size);
-/**
- * @param dest cast=(void *),flags=no_in
- * @param src cast=(const void *)
- * @param size cast=(size_t)
- */
-public static final native void memmove(GdkEventWindowState dest, long src, long size);
 public static final native void memmove(long dest, GtkCellRendererClass src);
 public static final native void memmove(GtkCellRendererClass dest, long src);
 /**
@@ -1556,6 +1501,7 @@ public static final native void memmove(PangoLayoutRun dest, long src, long size
  * @param size cast=(size_t)
  */
 public static final native void memmove(PangoLogAttr dest, long src, long size);
+public static final native int pango_version();
 /** @param attribute cast=(const PangoAttribute *) */
 public static final native long pango_attribute_copy(long attribute);
 public static final native long pango_attr_background_new(short red, short green, short blue);
@@ -1593,6 +1539,8 @@ public static final native void pango_attr_iterator_destroy(long iterator);
 public static final native long pango_attr_list_new();
 /** @param list cast=(PangoAttrList *) */
 public static final native void pango_attr_list_unref(long list);
+/** @method flags=dynamic **/
+public static final native long pango_attr_insert_hyphens_new(boolean hyphens);
 public static final native long pango_attr_strikethrough_color_new(short red, short green, short blue);
 public static final native long pango_attr_strikethrough_new(boolean strikethrough);
 public static final native long pango_attr_underline_color_new(short red, short green, short blue);
@@ -1931,6 +1879,27 @@ public static final byte [] getThemeNameBytes() {
 	}
 
 /**
+ * Experimental API for dark theme.
+ * <p>
+ * On Windows, there is no OS API for dark theme yet, and this method only
+ * configures various tweaks. Some of these tweaks have drawbacks. The tweaks
+ * are configured with defaults that fit Eclipse. Non-Eclipse applications are
+ * expected to configure individual tweaks instead of calling this method.
+ * Please see <code>Display#setData()</code> and documentation for string keys
+ * used there.
+ * </p>
+ * <p>
+ * On GTK, behavior may be different as the boolean flag doesn't force dark
+ * theme instead it specify that dark theme is preferred.
+ * </p>
+ *
+ * @param isDarkTheme <code>true</code> for dark theme
+ */
+public static final void setTheme(boolean isDarkTheme) {
+	setDarkThemePreferred (isDarkTheme);
+}
+
+/**
  * @param tmpl cast=(const gchar *)
  * @param error cast=(GError **)
  */
@@ -1997,74 +1966,6 @@ public static final native int g_bus_own_name(int bus_type, byte[] name, int fla
 
 /**
  * @param connection cast=(GDBusConnection *)
- * @param bus_name cast=(const gchar *)
- * @param object_path cast=(const gchar *)
- * @param interface_name cast=(const gchar *)
- * @param method_name cast=(const gchar *)
- * @param param cast=(GVariant *)
- * @param reply_type cast=(const GVariantType *)
- * @param cancellable cast=(GCancellable *)
- * @param callback cast=(GAsyncReadyCallback)
- * @param user_data cast=(gpointer)
- * @category gdbus
- */
-public static final native void g_dbus_connection_call(long connection, byte [] bus_name, byte [] object_path, byte [] interface_name, byte [] method_name, long param, long reply_type, int flag, int timeout, long cancellable, long callback, long user_data);
-
-/**
- * @param proxy cast=(GDBusConnection *)
- * @param res cast=(GAsyncResult *)
- * @param error cast=(GError **)
- * @category gdbus
- */
-public static final native long g_dbus_connection_call_finish(long proxy, long res, long [] error);
-
-/**
- * @param connection cast=(GDBusConnection *)
- * @param bus_name cast=(const gchar *)
- * @param object_path cast=(const gchar *)
- * @param interface_name cast=(const gchar *)
- * @param method_name cast=(const gchar *)
- * @param param cast=(GVariant *)
- * @param reply_type cast=(const GVariantType *)
- * @param cancellable cast=(GCancellable *)
- * @param error cast=(GError **)
- * @category gdbus
- */
-public static final native long g_dbus_connection_call_sync(long connection, byte [] bus_name, byte [] object_path, byte [] interface_name, byte [] method_name, long param, long reply_type, int flag, int timeout, long cancellable, long [] error);
-
-/**
- * @param connection cast=(GDBusConnection *)
- * @param cancellable cast=(GCancellable *)
- * @param error cast=(GError **)
- * @category gdbus
- */
-public static final native boolean g_dbus_connection_close_sync(long connection, long cancellable, long [] error);
-
-/**
- * @param connection cast=(GDBusConnection *)
- * @category gdbus
- */
-public static final native boolean g_dbus_connection_is_closed(long connection);
-
-/**
- * @param address cast=(const gchar *)
- * @param observer cast=(GDBusAuthObserver *)
- * @param cancellable cast=(GCancellable *)
- * @param callback cast=(GAsyncReadyCallback)
- * @param user_data cast=(gpointer)
- * @category gdbus
- */
-public static final native void g_dbus_connection_new_for_address(byte[] address, int flags, long observer, long cancellable, long callback, long user_data);
-
-/**
- * @param result cast=(GAsyncResult *)
- * @param error cast=(GError **)
- * @category gdbus
- */
-public static final native long g_dbus_connection_new_for_address_finish(long result, long [] error);
-
-/**
- * @param connection cast=(GDBusConnection *)
  * @param object_path cast=(const gchar *)
  * @param interface_info cast=(GDBusInterfaceInfo *)
  * @param vtable cast=(const GDBusInterfaceVTable *)
@@ -2088,45 +1989,6 @@ public static final native long g_dbus_node_info_lookup_interface(long info, byt
  * @category gdbus
  */
 public static final native void g_dbus_method_invocation_return_value(long invocation, long parameters);
-
-/**
- * @param address cast=(const gchar *)
- * @param flags cast=(GDBusServerFlags)
- * @param guid cast=(const gchar *)
- * @param observer cast=(GDBusAuthObserver *)
- * @param cancellable cast=(GCancellable *)
- * @param error cast=(GError **)
- * @category gdbus
- */
-public static final native long g_dbus_server_new_sync(long address, int flags, long guid, long observer, long cancellable, long [] error);
-
-/**
- * @param server cast=(GDBusServer *)
- * @category gdbus
- */
-public static final native void g_dbus_server_start(long server);
-
-/**
- * @param server cast=(GDBusServer *)
- * @category gdbus
- */
-public static final native void g_dbus_server_stop(long server);
-
-/**
- * @param server cast=(GDBusServer *)
- * @category gdbus
- */
-public static final native long g_dbus_server_get_client_address(long server);
-
-/**
- * @category gdbus
- */
-public static final native long g_dbus_auth_observer_new();
-
-/**
- * @category gdbus
- */
-public static final native long g_dbus_generate_guid();
 
 /**
  * @param type cast=(const GVariantType *)
@@ -2310,6 +2172,7 @@ public static final native void g_variant_unref(long value);
  */
 public static final native long g_object_ref_sink(long object);
 
+/* GDateTime */
 /**
  * @param dateTime cast=(GDateTime *)
  * @param year cast=(gint *)
@@ -2317,7 +2180,6 @@ public static final native long g_object_ref_sink(long object);
  * @param day cast=(gint *)
  */
 public static final native void g_date_time_get_ymd(long dateTime, int[] year, int[] month, int[] day);
-
 /**
  * Ranges:
  * year must be between 1 - 9999,
@@ -2335,6 +2197,8 @@ public static final native void g_date_time_get_ymd(long dateTime, int[] year, i
  * @param seconds cast=(gdouble)
  */
 public static final native long g_date_time_new_local(int year, int month, int day, int hour, int minute, double seconds);
+/** @param datetime cast=(GDateTime *) */
+public static final native void g_date_time_unref(long datetime);
 
 /** @param file cast=(GFile *) */
 public static final native long g_file_get_path(long file);
@@ -2382,14 +2246,10 @@ public static final native void g_menu_item_set_label(long menu_item, byte[] lab
  */
 public static final native void g_menu_item_set_attribute(long menu_item, byte[] attribute, byte[] format_string, long data);
 
-
-/* GMenuModel */
-/** @param model cast=(GMenuModel *) */
-public static final native int g_menu_model_get_n_items(long model);
-
-
-/* GAction */
+/* GSimpleActionGroup */
 public static final native long g_simple_action_group_new();
+
+/* GSimpleAction */
 /**
  * @param name cast=(const gchar *)
  * @param parameter_type cast=(const GVariantType *)
@@ -2402,22 +2262,30 @@ public static final native long g_simple_action_new(byte[] name, long parameter_
  */
 public static final native long g_simple_action_new_stateful(byte[] name, long parameter_type, long initial_state);
 /**
- * @param action_map cast=(GActionMap *)
- * @param action cast=(GAction *)
- */
-public static final native void g_action_map_add_action(long action_map, long action);
-/** @param action cast=(GAction *) */
-public static final native boolean g_action_get_enabled(long action);
-/** @param simple_action cast=(GSimpleAction *) */
-public static final native void g_simple_action_set_enabled(long simple_action, boolean enabled);
-/** @param action cast=(GAction *) */
-public static final native long g_action_get_state(long action);
-/**
  * @param simple_action cast=(GSimpleAction *)
  * @param value cast=(GVariant *)
  */
 public static final native void g_simple_action_set_state(long simple_action, long value);
+/** @param simple_action cast=(GSimpleAction *) */
+public static final native void g_simple_action_set_enabled(long simple_action, boolean enabled);
 
+/* GAction */
+/** @param action cast=(GAction *) */
+public static final native boolean g_action_get_enabled(long action);
+/** @param action cast=(GAction *) */
+public static final native long g_action_get_state(long action);
+
+/* GActionMap */
+/**
+ * @param action_map cast=(GActionMap *)
+ * @param action cast=(GAction *)
+ */
+public static final native void g_action_map_add_action(long action_map, long action);
+/**
+ * @param action_map cast=(GActionMap *)
+ * @param action_name cast=(const gchar *)
+ */
+public static final native void g_action_map_remove_action(long action_map, byte[] action_name);
 
 /* GListModel */
 /** @param list cast=(GListModel *) */
@@ -2427,4 +2295,13 @@ public static final native int g_list_model_get_n_items(long list);
  * @param position cast=(guint)
  */
 public static final native long g_list_model_get_item(long list, int position);
+
+/* GMemoryInputStream */
+/**
+ * @param data cast=(const void *)
+ * @param len cast=(gssize)
+ * @param destroy cast=(GDestroyNotify)
+ */
+public static final native long g_memory_input_stream_new_from_data(long data, long len, long destroy);
+
 }

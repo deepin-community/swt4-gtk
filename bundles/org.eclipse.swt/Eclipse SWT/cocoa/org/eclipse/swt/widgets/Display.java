@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2019 IBM Corporation and others.
+ * Copyright (c) 2000, 2022 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -10,10 +10,13 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Christoph Läubrich - Issue #64 - Integration with java.util.concurrent framework
  *******************************************************************************/
 package org.eclipse.swt.widgets;
 
+import java.lang.Runtime.*;
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.function.*;
 
 import org.eclipse.swt.*;
@@ -101,7 +104,7 @@ import org.eclipse.swt.internal.cocoa.*;
  * @noextend This class is not intended to be subclassed by clients.
  */
 @SuppressWarnings({"rawtypes", "unchecked"})
-public class Display extends Device {
+public class Display extends Device implements Executor {
 
 	static byte[] types = {'*','\0'};
 	static int size = C.PTR_SIZEOF, align = C.PTR_SIZEOF == 4 ? 2 : 3;
@@ -332,7 +335,7 @@ public class Display extends Device {
 
 	/* Multiple Displays. */
 	static Display Default;
-	static Display [] Displays = new Display [4];
+	static Display [] Displays = new Display [1];
 
 	/* Skinning support */
 	static final int GROW_SIZE = 1024;
@@ -374,6 +377,10 @@ public class Display extends Device {
 			}
 			setDevice (device);
 		};
+	}
+
+	static {
+		configureSystemOptions ();
 	}
 
 /*
@@ -559,7 +566,7 @@ void addPopup (Menu menu) {
 
 void addSkinnableWidget (Widget widget) {
 	if (skinCount >= skinList.length) {
-		Widget[] newSkinWidgets = new Widget [skinList.length + GROW_SIZE];
+		Widget[] newSkinWidgets = new Widget [(skinList.length + 1) * 3 / 2];
 		System.arraycopy (skinList, 0, newSkinWidgets, 0, skinList.length);
 		skinList = newSkinWidgets;
 	}
@@ -609,6 +616,49 @@ public void asyncExec (Runnable runnable) {
 }
 
 /**
+ * Executes the given runnable in the user-interface thread of this Display.
+ * <ul>
+ * <li>If the calling thread is the user-interface thread of this display it is
+ * executed immediately and the method returns after the command has run, as with
+ * the method {@link Display#syncExec(Runnable)}.</li>
+ * <li>In all other cases the <code>run()</code> method of the runnable is
+ * asynchronously executed as with the method
+ * {@link Display#asyncExec(Runnable)} at the next reasonable opportunity. The
+ * caller of this method continues to run in parallel, and is not notified when
+ * the runnable has completed.</li>
+ * </ul>
+ * <p>
+ * This can be used in cases where one want to execute some piece of code that
+ * should be guaranteed to run in the user-interface thread regardless of the
+ * current thread.
+ * </p>
+ *
+ * <p>
+ * Note that at the time the runnable is invoked, widgets that have the receiver
+ * as their display may have been disposed. Therefore, it is advised to check
+ * for this case inside the runnable before accessing the widget.
+ * </p>
+ *
+ * @param runnable the runnable to execute in the user-interface thread, never
+ *                 <code>null</code>
+ * @throws RejectedExecutionException if this task cannot be accepted for
+ *                                    execution
+ * @throws NullPointerException       if runnable is null
+ */
+@Override
+public void execute(Runnable runnable) {
+	Objects.requireNonNull(runnable);
+	if (isDisposed()) {
+		throw new RejectedExecutionException(new SWTException (SWT.ERROR_WIDGET_DISPOSED, null));
+	}
+	if (thread == Thread.currentThread()) {
+		syncExec(runnable);
+	} else {
+		asyncExec(runnable);
+	}
+}
+
+/**
  * Causes the system hardware to emit a short sound
  * (if it supports this capability).
  *
@@ -624,18 +674,32 @@ public void beep () {
 
 void cascadeWindow (NSWindow window, NSScreen screen) {
 	NSDictionary dictionary = screen.deviceDescription();
-	int screenNumber = new NSNumber(dictionary.objectForKey(NSString.stringWith("NSScreenNumber")).id).intValue();
-	int index = 0;
-	while (screenID[index] != 0 && screenID[index] != screenNumber) index++;
-	screenID[index] = screenNumber;
-	NSPoint cascade = screenCascade[index];
-	if (cascade == null) {
-		NSRect frame = screen.frame();
-		cascade = new NSPoint();
-		cascade.x = frame.x;
-		cascade.y = frame.y + frame.height;
+	if (dictionary != null) {
+		id screenNumberObject = dictionary.objectForKey(NSString.stringWith("NSScreenNumber"));
+		if (screenNumberObject != null) {
+			int screenNumber = new NSNumber(screenNumberObject.id).intValue();
+			int index = 0;
+			while (screenID[index] != 0 && screenID[index] != screenNumber) index++;
+			screenID[index] = screenNumber;
+			NSPoint cascade = screenCascade[index];
+			if (cascade == null) {
+				NSRect frame = screen.frame();
+				cascade = new NSPoint();
+				cascade.x = frame.x;
+				cascade.y = frame.y + frame.height;
+			}
+			screenCascade[index] = window.cascadeTopLeftFromPoint(cascade);
+			return;
+		}
 	}
-	screenCascade[index] = window.cascadeTopLeftFromPoint(cascade);
+	/*
+	 * Handle any unexpected cases when dictionary or screenNumberObject may be null.
+	 */
+	NSRect frame = screen.frame();
+	NSPoint cascade = new NSPoint();
+	cascade.x = frame.x;
+	cascade.y = frame.y + frame.height;
+	window.cascadeTopLeftFromPoint(cascade);
 }
 
 @Override
@@ -816,6 +880,51 @@ public void close () {
 	if (event.doit) dispose ();
 }
 
+static private void configureSystemOption (String option, boolean value) {
+	NSDictionary dictionary = NSDictionary.dictionaryWithObject (NSNumber.numberWithBool (value), NSString.stringWith (option));
+	NSUserDefaults.standardUserDefaults ().registerDefaults (dictionary);
+}
+
+static private void configureSystemOptions () {
+	/*
+	 * Most native applications are layer backed. This means that everything
+	 * painted by the application is cached for performance reasons, such as
+	 * not having to repaint everything when scrolling.
+	 *
+	 * The condition for default layer backing is being compatible with
+	 * responsive scrolling, and SWT is not compatible because it handles
+	 * 'scrollWheel:' and 'drawRect:' in 'NSScrollView'. Making SWT compatible
+	 * is not trivial.
+	 *
+	 * Requesting layer directly is possible, but I decided that it's better to
+	 * just enable system option for older macOS, because it's what happens when
+	 * using newer Java anyway.
+	 *
+	 * The workaround is to enable root layer backing. macOS 10.14 and 10.15
+	 * already enable this option if app was linked with sdk 10.14+ and
+	 * macOS 11 always enables it regardless of sdk. The option is force
+	 * enabled here in case SWT runs with java/launcher linked with older sdk.
+	 */
+	if (!OS.isBigSurOrLater ()) {
+		configureSystemOption ("NSViewAllowsRootLayerBacking", true);
+	}
+
+	/*
+	 * Starting with macOS 11, layer backing is always enabled. That's fine.
+	 * What is not fine however is that macOS uses "automatic" image format for
+	 * it. This means that instead of actual rendering, macOS's GC only remembers
+	 * the operations performed. This causes macOS to ignore clip rect and paint
+	 * entire visible rect whenever something changes, and that's a lot of
+	 * painting. Example: Table will now repaint all visible items when a single
+	 * item is selected/deselected. In case of owner drawn Table, this makes
+	 * things a lot slower. The workaround is to disable the "automatic" image
+	 * format.
+	 */
+	if (OS.isBigSurOrLater ()) {
+		configureSystemOption ("NSViewUsesAutomaticLayerBackingStores", false);
+	}
+}
+
 /**
  * Creates the device in the operating system.  If the device
  * does not have a handle, this method may do nothing depending
@@ -966,13 +1075,13 @@ void createMainMenu () {
 	appleMenu.initWithTitle(emptyStr);
 	OS.objc_msgSend(application.id, OS.sel_registerName("setAppleMenu:"), appleMenu.id);
 
-	title = NSString.stringWith(SWT.getMessage("About") + " " + appName);
+	title = NSString.stringWith(SWT.getMessage("SWT_About") + " " + appName);
 	menuItem = appleMenu.addItemWithTitle(title, OS.sel_orderFrontStandardAboutPanel_, emptyStr);
 	menuItem.setTarget(applicationDelegate);
 
 	appleMenu.addItem(NSMenuItem.separatorItem());
 
-	title = NSString.stringWith(SWT.getMessage("Preferences..."));
+	title = NSString.stringWith(SWT.getMessage("SWT_Preferences"));
 	menuItem = appleMenu.addItemWithTitle(title, 0, NSString.stringWith(","));
 
 	/*
@@ -983,7 +1092,7 @@ void createMainMenu () {
 
 	appleMenu.addItem(NSMenuItem.separatorItem());
 
-	title = NSString.stringWith(SWT.getMessage("Services"));
+	title = NSString.stringWith(SWT.getMessage("SWT_Services"));
 	menuItem = appleMenu.addItemWithTitle(title, 0, emptyStr);
 	NSMenu servicesMenu = (NSMenu)new NSMenu().alloc();
 	servicesMenu.initWithTitle(emptyStr);
@@ -993,22 +1102,22 @@ void createMainMenu () {
 
 	appleMenu.addItem(NSMenuItem.separatorItem());
 
-	title = NSString.stringWith(SWT.getMessage("Hide") + " " + appName);
+	title = NSString.stringWith(SWT.getMessage("SWT_Hide") + " " + appName);
 	menuItem = appleMenu.addItemWithTitle(title, OS.sel_hide_, NSString.stringWith("h"));
 	menuItem.setTarget(applicationDelegate);
 
-	title = NSString.stringWith(SWT.getMessage("Hide Others"));
+	title = NSString.stringWith(SWT.getMessage("SWT_HideOthers"));
 	menuItem = appleMenu.addItemWithTitle(title, OS.sel_hideOtherApplications_, NSString.stringWith("h"));
 	menuItem.setKeyEquivalentModifierMask(OS.NSCommandKeyMask | OS.NSAlternateKeyMask);
 	menuItem.setTarget(applicationDelegate);
 
-	title = NSString.stringWith(SWT.getMessage("Show All"));
+	title = NSString.stringWith(SWT.getMessage("SWT_ShowAll"));
 	menuItem = appleMenu.addItemWithTitle(title, OS.sel_unhideAllApplications_, emptyStr);
 	menuItem.setTarget(applicationDelegate);
 
 	appleMenu.addItem(NSMenuItem.separatorItem());
 
-	title = NSString.stringWith(SWT.getMessage("Quit") + " " + appName);
+	title = NSString.stringWith(SWT.getMessage("SWT_Quit") + " " + appName);
 	menuItem = appleMenu.addItemWithTitle(title, OS.sel_applicationShouldTerminate_, NSString.stringWith("q"));
 	menuItem.setTarget(applicationDelegate);
 
@@ -1691,10 +1800,6 @@ Menu [] getMenus (Decorations shell) {
 	return result;
 }
 
-int getMessageCount () {
-	return synchronizer.getMessageCount ();
-}
-
 Dialog getModalDialog () {
 	return modalDialog;
 }
@@ -2360,12 +2465,9 @@ protected void init () {
 	OS.CFRunLoopAddObserver (OS.CFRunLoopGetCurrent (), runLoopObserver, OS.kCFRunLoopCommonModes ());
 
 	// Add AWT Runloop mode for SWT/AWT.
-	long cls = OS.objc_lookUpClass("JNFRunLoop"); //$NON-NLS-1$
-	if (cls != 0) {
-		long mode = OS.objc_msgSend(cls, OS.sel_javaRunLoopMode);
-		if (mode != 0) {
-			OS.CFRunLoopAddObserver (OS.CFRunLoopGetCurrent (), runLoopObserver, mode);
-		}
+	NSString javaRunLoopMode = getAwtRunLoopMode();
+	if (javaRunLoopMode != null) {
+		OS.CFRunLoopAddObserver (OS.CFRunLoopGetCurrent (), runLoopObserver, javaRunLoopMode.id);
 	}
 
 	cursorSetCallback = new Callback(this, "cursorSetProc", 2);
@@ -2398,6 +2500,52 @@ protected void init () {
 
 	isPainting = (NSMutableArray)new NSMutableArray().alloc();
 	isPainting = isPainting.initWithCapacity(12);
+}
+
+private static NSString getAwtRunLoopMode() {
+	// Special run loop mode mode used by AWT enters when it only wants related messages processed.
+	// The name of this mode is a defacto contract established by the JavaNativeFoundation (JNF) libary.
+	// It could be accessed via OS.objc_lookUpClass("JNFRunLoop").
+	//
+	// However, in JDK 11.0.12 / 13.0.8 / 15.0.4 / 17 this broke:
+	// 1) JNF was dropped from JDK:
+	//    https://bugs.openjdk.java.net/browse/JDK-8260616
+	//    https://bugs.openjdk.java.net/browse/JDK-8261693
+	// 2) The contract was broken, since the name was changed from "AWTRunLoopMode" to "jnfRunLoopMode":
+	//    https://www.mail-archive.com/awt-dev@openjdk.java.net/msg17946.html
+	//
+	// JNF is also not available in arm64.
+	//
+	// In JDK 11.0.14 / 13.0.9 / 15.0.5 / 17.0.0.1 the name was changed back to "AWTRunLoopMode":
+	// https://bugs.openjdk.java.net/browse/JDK-8270216
+	// There is no concept yet to update this:
+	// https://bugs.openjdk.java.net/browse/JDK-8270211
+	//
+	// Therefore, for now, we follow this approach:
+
+	// 1) If JNFRunLoop is available, we keep using it
+	long cls = OS.objc_lookUpClass("JNFRunLoop");
+	if (cls != 0) {
+		long mode = OS.objc_msgSend(cls, OS.sel_javaRunLoopMode);
+		if (mode != 0) {
+			return new NSString(mode);
+		}
+	}
+
+	// 2) If the version is new enough to contain the fix https://bugs.openjdk.java.net/browse/JDK-8270216
+	//    we are optimistic
+	Version version = Runtime.version();
+	if (version.feature() > 17 //
+			|| version.feature() == 17 && Version.parse("17.0.1").compareToIgnoreOptional(version) <= 0 //
+			|| version.feature() == 11 && Version.parse("11.0.14").compareToIgnoreOptional(version) <= 0 //
+			|| version.feature() == 15 && Version.parse("15.0.5").compareToIgnoreOptional(version) <= 0 //
+			|| version.feature() == 13 && Version.parse("13.0.9").compareToIgnoreOptional(version) <= 0) {
+		return NSString.stringWith("AWTRunLoopMode");
+	}
+
+	// 3) Otherwise, for the few broken Java versions inbetween, we are pessimistic to avoid any immediate
+	//    deadlocks in calling code (although deadlocks will probably still occurr later down the road).
+	return null;
 }
 
 void addEventMethods (long cls, long proc2, long proc3, long drawRectProc, long hitTestProc, long needsDisplayInRectProc) {
@@ -2940,7 +3088,6 @@ void initClasses () {
 	OS.class_addMethod(cls, OS.sel_menuForEvent_, proc3, "@:@");
 	OS.class_addMethod(cls, OS.sel_headerRectOfColumn_, headerRectOfColumnProc, "@:i");
 	OS.class_addMethod(cls, OS.sel_columnAtPoint_, columnAtPointProc, "@:{NSPoint}");
-	OS.class_addMethod(cls, OS.sel_viewDidMoveToWindow, proc2, "@:");
 	//TODO hitTestProc and drawRectProc should be set Control.setRegion()?
 	OS.objc_registerClassPair(cls);
 
@@ -3287,6 +3434,17 @@ boolean isValidThread () {
 	return thread == Thread.currentThread ();
 }
 
+static long getCurrentKeyLayout () {
+	long currentKbd = OS.TISCopyCurrentKeyboardInputSource ();
+	long keyLayoutData = OS.TISGetInputSourceProperty (currentKbd, OS.kTISPropertyUnicodeKeyLayoutData());
+	if (currentKbd != 0) OS.CFRelease (currentKbd);
+	if (keyLayoutData == 0) return 0;
+	long keyLayout = OS.CFDataGetBytePtr (keyLayoutData);
+	if (keyLayout == 0) return 0;
+	if (OS.CFDataGetLength (keyLayoutData) == 0) return 0;
+	return keyLayout;
+}
+
 /**
  * Generate a low level system event.
  *
@@ -3365,21 +3523,15 @@ public boolean post(Event event) {
 			case SWT.KeyUp: {
 				short vKey = (short)Display.untranslateKey (event.keyCode);
 				if (vKey == 0) {
-					long uchrPtr = 0;
-					long currentKbd = OS.TISCopyCurrentKeyboardInputSource();
-					long uchrCFData = OS.TISGetInputSourceProperty(currentKbd, OS.kTISPropertyUnicodeKeyLayoutData());
-
-					if (uchrCFData == 0) return false;
-					uchrPtr = OS.CFDataGetBytePtr(uchrCFData);
-					if (uchrPtr == 0) return false;
-					if (OS.CFDataGetLength(uchrCFData) == 0) return false;
+					long keyLayout = getCurrentKeyLayout ();
+					if (keyLayout == 0) return false;
 					int maxStringLength = 256;
 					vKey = -1;
 					char [] output = new char [maxStringLength];
 					long [] actualStringLength = new long [1];
 					for (short i = 0 ; i <= 0x7F ; i++) {
 						deadKeyState[0] = 0;
-						OS.UCKeyTranslate (uchrPtr, i, (short)(type == SWT.KeyDown ? OS.kUCKeyActionDown : OS.kUCKeyActionUp), 0, OS.LMGetKbdType(), 0, deadKeyState, maxStringLength, actualStringLength, output);
+						OS.UCKeyTranslate (keyLayout, i, type == SWT.KeyDown ? OS.kUCKeyActionDown : OS.kUCKeyActionUp, 0, OS.LMGetKbdType(), 0, deadKeyState, maxStringLength, actualStringLength, output);
 						if (output[0] == event.character) {
 							vKey = i;
 							break;
@@ -3388,7 +3540,7 @@ public boolean post(Event event) {
 					if (vKey == -1) {
 						for (short i = 0 ; i <= 0x7F ; i++) {
 							deadKeyState[0] = 0;
-							OS.UCKeyTranslate (uchrPtr, i, (short)(type == SWT.KeyDown ? OS.kUCKeyActionDown : OS.kUCKeyActionUp), (OS.shiftKey >> 8) & 0xFF, OS.LMGetKbdType(), 0, deadKeyState, maxStringLength, actualStringLength, output);
+							OS.UCKeyTranslate (keyLayout, i, type == SWT.KeyDown ? OS.kUCKeyActionDown : OS.kUCKeyActionUp, (OS.shiftKey >> 8) & 0xFF, OS.LMGetKbdType(), 0, deadKeyState, maxStringLength, actualStringLength, output);
 							if (output[0] == event.character) {
 								vKey = i;
 								break;
@@ -3887,41 +4039,78 @@ static void register (Display display) {
  */
 @Override
 protected void release () {
-	disposing = true;
-	sendEvent (SWT.Dispose, new Event ());
-	Shell [] shells = getShells ();
-	for (int i=0; i<shells.length; i++) {
-		Shell shell = shells [i];
-		if (!shell.isDisposed ()) shell.dispose ();
-	}
-	if (tray != null) tray.dispose ();
-	tray = null;
-	if (taskBar != null) taskBar.dispose ();
-	taskBar = null;
-	while (readAndDispatch ()) {}
-	if (disposeList != null) {
-		for (int i=0; i<disposeList.length; i++) {
-			Runnable next = disposeList [i];
-			if (next != null) {
+	try (ExceptionStash exceptions = new ExceptionStash ()) {
+		disposing = true;
+
+		try {
+			sendEvent (SWT.Dispose, new Event ());
+		} catch (Error | RuntimeException ex) {
+			exceptions.stash (ex);
+		}
+
+		for (Shell shell : getShells ()) {
+			try {
+				if (!shell.isDisposed ()) shell.dispose ();
+			} catch (Error | RuntimeException ex) {
+				exceptions.stash (ex);
+			}
+		}
+
+		try {
+			if (tray != null) tray.dispose ();
+		} catch (Error | RuntimeException ex) {
+			exceptions.stash (ex);
+		}
+		tray = null;
+
+		try {
+			if (taskBar != null) taskBar.dispose ();
+		} catch (Error | RuntimeException ex) {
+			exceptions.stash (ex);
+		}
+		taskBar = null;
+
+		for (;;) {
+			try {
+				if (!readAndDispatch ()) break;
+			} catch (Error | RuntimeException ex) {
+				exceptions.stash (ex);
+			}
+		}
+
+		if (disposeList != null) {
+			for (Runnable next : disposeList) {
+				if (next == null) continue;
+
 				try {
 					next.run ();
-				} catch (RuntimeException exception) {
-					runtimeExceptionHandler.accept (exception);
-				} catch (Error error) {
-					errorHandler.accept (error);
+				} catch (Error | RuntimeException ex) {
+					exceptions.stash (ex);
 				}
 			}
 		}
+		disposeList = null;
+
+		synchronizer.releaseSynchronizer ();
+		synchronizer = null;
+
+		try {
+			if (appMenu != null) appMenu.dispose();
+		} catch (Error | RuntimeException ex) {
+			exceptions.stash (ex);
+		}
+		appMenu = null;
+
+		try {
+			if (appMenuBar != null) appMenuBar.dispose();
+		} catch (Error | RuntimeException ex) {
+			exceptions.stash (ex);
+		}
+		appMenuBar = null;
+
+		releaseDisplay ();
+		super.release ();
 	}
-	disposeList = null;
-	synchronizer.releaseSynchronizer ();
-	synchronizer = null;
-	if (appMenu != null) appMenu.dispose();
-	appMenu = null;
-	if (appMenuBar != null) appMenuBar.dispose();
-	appMenuBar = null;
-	releaseDisplay ();
-	super.release ();
 }
 
 void releaseDisplay () {
@@ -4180,11 +4369,8 @@ boolean runAsyncMessages (boolean all) {
 }
 
 boolean runAWTInvokeLater() {
-	long cls = OS.objc_lookUpClass("JNFRunLoop");
-	if (cls == 0) return false;
-	long mode = OS.objc_msgSend(cls, OS.sel_javaRunLoopMode);
-	if (mode == 0) return false;
-	NSString javaRunLoopMode = new NSString(mode);
+	NSString javaRunLoopMode = getAwtRunLoopMode();
+	if (javaRunLoopMode == null) return false;
 	allowTimers = runAsyncMessages = false;
 	NSRunLoop.currentRunLoop().runMode(javaRunLoopMode, NSDate.distantFuture());
 	allowTimers = runAsyncMessages = true;
@@ -4419,6 +4605,25 @@ boolean runTimers () {
 	return result;
 }
 
+private void sendJDKInternalEvent(int eventType) {
+	sendJDKInternalEvent(eventType, 0);
+}
+/** does sent event with JDK time**/
+private void sendJDKInternalEvent(int eventType, int detail) {
+	if (eventTable == null || !eventTable.hooks (eventType)) {
+		return;
+	}
+	Event event = new Event ();
+	event.detail = detail;
+	event.display = this;
+	event.type = eventType;
+	// time is set for debugging purpose only:
+	event.time = (int) (System.nanoTime() / 1000_000L);
+	if (!filterEvent (event)) {
+		sendEvent (eventTable, event);
+	}
+}
+
 void sendEvent (int eventType, Event event) {
 	if (eventTable == null && filterTable == null) {
 		return;
@@ -4453,11 +4658,7 @@ void sendPreEvent (int eventType) {
 	if (eventType != SWT.PreEvent && eventType != SWT.PostEvent
 			&& eventType != SWT.PreExternalEventDispatch
 			&& eventType != SWT.PostExternalEventDispatch) {
-		if (eventTable != null && eventTable.hooks (SWT.PreEvent)) {
-			Event event = new Event ();
-			event.detail = eventType;
-			sendEvent (SWT.PreEvent, event);
-		}
+		sendJDKInternalEvent (SWT.PreEvent, eventType);
 	}
 }
 
@@ -4465,11 +4666,7 @@ void sendPostEvent (int eventType) {
 	if (eventType != SWT.PreEvent && eventType != SWT.PostEvent
 			&& eventType != SWT.PreExternalEventDispatch
 			&& eventType != SWT.PostExternalEventDispatch) {
-		if (eventTable != null && eventTable.hooks (SWT.PostEvent)) {
-			Event event = new Event ();
-			event.detail = eventType;
-			sendEvent (SWT.PostEvent, event);
-		}
+		sendJDKInternalEvent (SWT.PostEvent, eventType);
 	}
 }
 
@@ -4479,9 +4676,7 @@ void sendPostEvent (int eventType) {
  * @noreference This method is not intended to be referenced by clients.
  */
 public void sendPreExternalEventDispatchEvent () {
-	if (eventTable != null && eventTable.hooks (SWT.PreExternalEventDispatch)) {
-		sendEvent (SWT.PreExternalEventDispatch, null);
-	}
+	sendJDKInternalEvent (SWT.PreExternalEventDispatch);
 }
 
 /**
@@ -4490,9 +4685,7 @@ public void sendPreExternalEventDispatchEvent () {
  * @noreference This method is not intended to be referenced by clients.
  */
 public void sendPostExternalEventDispatchEvent () {
-	if (eventTable != null && eventTable.hooks (SWT.PostExternalEventDispatch)) {
-		sendEvent (SWT.PostExternalEventDispatch, null);
-	}
+	sendJDKInternalEvent (SWT.PostExternalEventDispatch);
 }
 
 static NSString getApplicationName() {
@@ -4551,10 +4744,12 @@ public static String getAppVersion () {
  * to any value other than "SWT" (case insensitive),
  * it is used to set the application user model ID
  * which is used by the OS for taskbar grouping.
- * @see <a href="http://msdn.microsoft.com/en-us/library/windows/desktop/dd378459%28v=vs.85%29.aspx#HOW">AppUserModelID (Windows)</a>
- * </p><p>
+ * </p>
+ * <p>
  * Specifying <code>null</code> for the name clears it.
  * </p>
+ *
+ * @see <a href="http://msdn.microsoft.com/en-us/library/windows/desktop/dd378459%28v=vs.85%29.aspx#HOW">AppUserModelID (Windows)</a>
  *
  * @param name the new app name or <code>null</code>
  */
@@ -4787,6 +4982,13 @@ void setDeviceZoom() {
 	DPIUtil.setDeviceZoom (getDeviceZoom());
 }
 
+static void cancelRootMenuTracking () {
+	long rootMenu = OS.AcquireRootMenu ();
+	if (rootMenu == 0) return; // Extra safety, not sure if it can happen
+	OS.CancelMenuTracking (rootMenu, true, 0);
+	OS.CFRelease (rootMenu);
+}
+
 void setMenuBar (Menu menu) {
 	// If passed a null menu bar don't clear out the menu bar, but switch back to the
 	// application menu bar instead, if it exists.  If the app menu bar is already active
@@ -4802,7 +5004,7 @@ void setMenuBar (Menu menu) {
 	* event loop. The fix is to use CancelMenuTracking() instead.
 	*/
 //	menubar.cancelTracking();
-	OS.CancelMenuTracking (OS.AcquireRootMenu (), true, 0);
+	cancelRootMenuTracking ();
 	long count = menubar.numberOfItems();
 	while (count > 1) {
 		menubar.removeItemAtIndex(count - 1);
@@ -4999,7 +5201,7 @@ public final Consumer<Error> getErrorHandler () {
  */
 public boolean sleep () {
 	checkDevice ();
-	if (getMessageCount () != 0) return true;
+	if (!synchronizer.isMessagesEmpty()) return true;
 	sendPreExternalEventDispatchEvent ();
 	try {
 		addPool();
@@ -5046,6 +5248,54 @@ public void syncExec (Runnable runnable) {
 		synchronizer = this.synchronizer;
 	}
 	synchronizer.syncExec (runnable);
+}
+
+/**
+ * Calls the callable on the user-interface thread at the next reasonable
+ * opportunity, and returns the its result from this method. The thread which
+ * calls this method is suspended until the callable completes.
+ * <p>
+ * Note that at the time the callable is invoked, widgets that have the receiver
+ * as their display may have been disposed. Therefore, it is necessary to check
+ * for this case inside the callable before accessing the widget.
+ * </p>
+ * <p>
+ * Any exception that is thrown from the callable is re-thrown in the calling
+ * thread. Note: The exception retains its original stack trace from the
+ * throwing thread. The call to {@code syncCall} will not be present in the
+ * stack trace.
+ * </p>
+ *
+ * @param callable the code to call on the user-interface thread
+ *
+ * @exception SWTException <code>ERROR_DEVICE_DISPOSED</code> - if the receiver
+ *                         has been disposed
+ * @exception E            An exception that is thrown by the callable on the
+ *                         user-interface thread, and re-thrown on the calling
+ *                         thread
+ *
+ * @see #syncExec(Runnable)
+ * @see SwtCallable#call()
+ * @since 3.118
+ */
+public <T, E extends Exception> T syncCall(SwtCallable<T, E> callable) throws E {
+	Objects.nonNull(callable);
+	@SuppressWarnings("unchecked")
+	T[] t = (T[]) new Object[1];
+	Object[] ex = new Object[1];
+	syncExec(() -> {
+		try {
+			t[0] = callable.call();
+		} catch (Exception e) {
+			ex[0] = e;
+		}
+	});
+	if (ex[0] != null) {
+		@SuppressWarnings("unchecked")
+		E e = (E) ex[0];
+		throw e;
+	}
+	return t[0];
 }
 
 /**
@@ -5468,28 +5718,24 @@ void applicationWillFinishLaunching (long id, long sel, long notification) {
 	/* To find the nib look for each of these paths, in order, until one is found:
 	 * 		/System/Library/..../Resources/<display name>.lproj/DefaultApp.nib
 	 * 		/System/Library/..../Resources/<language>.lproj/DefaultApp.nib
-	 * 		/System/Library/..../Resources/<user's default language>.lproj/DefaultApp.nib
-	 * 		/System/Library/..../Resources/English.lproj/DefaultApp.nib.
-	 * 		/System/Library/..../Resources/en.lproj/DefaultApp.nib.
+	 * 		/System/Library/..../Resources/Base.lproj/DefaultApp.nib
+	 *
+	 * If nib file is not found, use the fallback method createMainMenu() to create menu with localized strings.
 	 */
 	NSString path;
 	NSDictionary dict = NSDictionary.dictionaryWithObject(applicationDelegate, NSString.stringWith("NSOwner"));
-	NSBundle bundle = NSBundle.bundleWithIdentifier(NSString.stringWith("com.apple.JavaVM"));
+	NSBundle bundle = NSBundle.bundleWithPath(NSString.stringWith("/System/Library/Frameworks/JavaVM.framework/"));
 	if (bundle != null) {
 		path = bundle.pathForResource(NSString.stringWith("DefaultApp"), NSString.stringWith("nib"), null, languageDisplayName);
 		if (path == null) path = bundle.pathForResource(NSString.stringWith("DefaultApp"), NSString.stringWith("nib"), null, NSString.stringWith(languageISOValue));
-		if (path == null) path = bundle.pathForResource(NSString.stringWith("DefaultApp"), NSString.stringWith("nib"));
-		if (!loaded) loaded = path != null && NSBundle.loadNibFile(path, dict, 0);
-		if (!loaded) {
-			path = bundle.pathForResource(NSString.stringWith("DefaultApp"), NSString.stringWith("nib"), null, NSString.stringWith("English"));
-			if (path == null) path = bundle.pathForResource(NSString.stringWith("DefaultApp"), NSString.stringWith("nib"), null, NSString.stringWith("en"));
-			loaded = path != null && NSBundle.loadNibFile(path, dict, 0);
+		if (path == null && languageISOValue.equals("en")) {
+			path = bundle.pathForResource(NSString.stringWith("DefaultApp"), NSString.stringWith("nib"));
 		}
+		if (!loaded) loaded = path != null && NSBundle.loadNibFile(path, dict, 0);
 	}
-	if (!loaded) {
-		path = NSString.stringWith(System.getProperty("java.home") + "/../Resources/English.lproj/DefaultApp.nib");
-		loaded = path != null && NSBundle.loadNibFile(path, dict, 0);
-	}
+	/*
+	 * Create the main menu ourselves if Default.nib was not loaded or was not found for the specific language
+	 */
 	if (!loaded) {
 		createMainMenu();
 	}
@@ -6700,4 +6946,7 @@ static long windowProc(long id, long sel, long arg0, long arg1, long arg2, long 
 	}
 }
 
+static boolean isActivateShellOnForceFocus() {
+	return "true".equals(System.getProperty("org.eclipse.swt.internal.activateShellOnForceFocus", "true")); //$NON-NLS-1$
+}
 }

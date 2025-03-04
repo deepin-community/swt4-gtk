@@ -273,10 +273,10 @@ void createWidget (int index) {
 
 void destroyAccelGroup () {
 	if (accelGroup == 0) return;
+	if (menuBar != null) menuBar.removeAccelerators(accelGroup);
 	long shellHandle = topHandle ();
 	GTK3.gtk_window_remove_accel_group (shellHandle, accelGroup);
-	//TEMPORARY CODE
-//	OS.g_object_unref (accelGroup);
+	OS.g_object_unref (accelGroup);
 	accelGroup = 0;
 }
 
@@ -391,7 +391,6 @@ public Image [] getImages () {
 /**
  * Returns <code>true</code> if the receiver is currently
  * maximized, and false otherwise.
- * <p>
  *
  * @return the maximized state
  *
@@ -426,7 +425,6 @@ public Menu getMenuBar () {
 /**
  * Returns <code>true</code> if the receiver is currently
  * minimized, and false otherwise.
- * <p>
  *
  * @return the minimized state
  *

@@ -13,23 +13,14 @@
 #     IBM Corporation - initial API and implementation
 #*******************************************************************************
 
-cd `dirname $0`
+sw_vers -productVersion
 
-if [ -d /System/Library/Frameworks/JavaVM.framework/Headers ]; then
-	export CFLAGS_JAVA_VM="-I /System/Library/Frameworks/JavaVM.framework/Headers"
-else
-	export CFLAGS_JAVA_VM="-I $(/usr/libexec/java_home)/include -I $(/usr/libexec/java_home)/include/darwin"
-fi
+cd `dirname $0`
 
 if [ "x${MODEL}" = "xx86_64" ]; then
 	export ARCHS="-arch x86_64"
 	if [ "x${OUTPUT_DIR}" = "x" ]; then
 		export OUTPUT_DIR=../../../org.eclipse.swt.cocoa.macosx.x86_64
-	fi
-	if [ -d "chromium_subp/cef_macosx" ]; then
-		export CHROMIUM_HEADERS=./chromium_subp/cef_macosx
-	else
-		export CHROMIUM_HEADERS=$CHROMIUM_OUTPUT_DIR/../../../../eclipse.platform.swt/bundles/org.eclipse.swt.browser.chromium/common/rust-library/chromium_subp/cef_macosx
 	fi
 elif [ "x${MODEL}" = "xarm64" ] || [ "x${MODEL}" = "xaarch64" ]; then
 	export ARCHS="-arch arm64"

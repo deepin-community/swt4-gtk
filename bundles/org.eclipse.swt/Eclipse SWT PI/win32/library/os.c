@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2021 IBM Corporation and others.
+ * Copyright (c) 2000, 2022 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -21,6 +21,11 @@
 
 #ifndef OS_NATIVE
 #define OS_NATIVE(func) Java_org_eclipse_swt_internal_win32_OS_##func
+#endif
+
+#ifdef _WIN32
+  /* Many methods don't use their 'env' and 'that' arguments */
+  #pragma warning (disable: 4100)
 #endif
 
 #ifndef NO_ACCEL_1sizeof
@@ -1504,6 +1509,22 @@ JNIEXPORT jboolean JNICALL OS_NATIVE(DuplicateHandle)
 fail:
 	if (arg3 && lparg3) (*env)->ReleaseLongArrayElements(env, arg3, lparg3, 0);
 	OS_NATIVE_EXIT(env, that, DuplicateHandle_FUNC);
+	return rc;
+}
+#endif
+
+#ifndef NO_DwmSetWindowAttribute
+JNIEXPORT jboolean JNICALL OS_NATIVE(DwmSetWindowAttribute)
+	(JNIEnv *env, jclass that, jlong arg0, jint arg1, jintArray arg2, jint arg3)
+{
+	jint *lparg2=NULL;
+	jboolean rc = 0;
+	OS_NATIVE_ENTER(env, that, DwmSetWindowAttribute_FUNC);
+	if (arg2) if ((lparg2 = (*env)->GetIntArrayElements(env, arg2, NULL)) == NULL) goto fail;
+	rc = (jboolean)DwmSetWindowAttribute((HWND)arg0, arg1, lparg2, arg3);
+fail:
+	if (arg2 && lparg2) (*env)->ReleaseIntArrayElements(env, arg2, lparg2, 0);
+	OS_NATIVE_EXIT(env, that, DwmSetWindowAttribute_FUNC);
 	return rc;
 }
 #endif
@@ -3363,18 +3384,6 @@ JNIEXPORT jint JNICALL OS_NATIVE(GetUpdateRgn)
 }
 #endif
 
-#ifndef NO_GetVersion
-JNIEXPORT jint JNICALL OS_NATIVE(GetVersion)
-	(JNIEnv *env, jclass that)
-{
-	jint rc = 0;
-	OS_NATIVE_ENTER(env, that, GetVersion_FUNC);
-	rc = (jint)GetVersion();
-	OS_NATIVE_EXIT(env, that, GetVersion_FUNC);
-	return rc;
-}
-#endif
-
 #ifndef NO_GetWindow
 JNIEXPORT jlong JNICALL OS_NATIVE(GetWindow)
 	(JNIEnv *env, jclass that, jlong arg0, jint arg1)
@@ -4648,6 +4657,22 @@ JNIEXPORT jlong JNICALL OS_NATIVE(LoadImage)
 	OS_NATIVE_ENTER(env, that, LoadImage_FUNC);
 	rc = (jlong)LoadImage((HINSTANCE)arg0, (LPWSTR)arg1, arg2, arg3, arg4, arg5);
 	OS_NATIVE_EXIT(env, that, LoadImage_FUNC);
+	return rc;
+}
+#endif
+
+#ifndef NO_LoadKeyboardLayout
+JNIEXPORT jlong JNICALL OS_NATIVE(LoadKeyboardLayout)
+	(JNIEnv *env, jclass that, jcharArray arg0, jlong arg1)
+{
+	jchar *lparg0=NULL;
+	jlong rc = 0;
+	OS_NATIVE_ENTER(env, that, LoadKeyboardLayout_FUNC);
+	if (arg0) if ((lparg0 = (*env)->GetCharArrayElements(env, arg0, NULL)) == NULL) goto fail;
+	rc = (jlong)LoadKeyboardLayout((LPCWSTR)lparg0, (UINT)arg1);
+fail:
+	if (arg0 && lparg0) (*env)->ReleaseCharArrayElements(env, arg0, lparg0, 0);
+	OS_NATIVE_EXIT(env, that, LoadKeyboardLayout_FUNC);
 	return rc;
 }
 #endif
@@ -6399,6 +6424,18 @@ JNIEXPORT void JNICALL OS_NATIVE(NotifyWinEvent)
 }
 #endif
 
+#ifndef NO_OSVERSIONINFOEX_1sizeof
+JNIEXPORT jint JNICALL OS_NATIVE(OSVERSIONINFOEX_1sizeof)
+	(JNIEnv *env, jclass that)
+{
+	jint rc = 0;
+	OS_NATIVE_ENTER(env, that, OSVERSIONINFOEX_1sizeof_FUNC);
+	rc = (jint)OSVERSIONINFOEX_sizeof();
+	OS_NATIVE_EXIT(env, that, OSVERSIONINFOEX_1sizeof_FUNC);
+	return rc;
+}
+#endif
+
 #ifndef NO_OUTLINETEXTMETRIC_1sizeof
 JNIEXPORT jint JNICALL OS_NATIVE(OUTLINETEXTMETRIC_1sizeof)
 	(JNIEnv *env, jclass that)
@@ -7042,6 +7079,18 @@ fail:
 }
 #endif
 
+#ifndef NO_RegisterHotKey
+JNIEXPORT jboolean JNICALL OS_NATIVE(RegisterHotKey)
+	(JNIEnv *env, jclass that, jlong arg0, jint arg1, jint arg2, jint arg3)
+{
+	jboolean rc = 0;
+	OS_NATIVE_ENTER(env, that, RegisterHotKey_FUNC);
+	rc = (jboolean)RegisterHotKey((HWND)arg0, arg1, (UINT)arg2, (UINT)arg3);
+	OS_NATIVE_EXIT(env, that, RegisterHotKey_FUNC);
+	return rc;
+}
+#endif
+
 #ifndef NO_RegisterTouchWindow
 JNIEXPORT jboolean JNICALL OS_NATIVE(RegisterTouchWindow)
 	(JNIEnv *env, jclass that, jlong arg0, jint arg1)
@@ -7150,6 +7199,30 @@ JNIEXPORT jboolean JNICALL OS_NATIVE(RoundRect)
 	OS_NATIVE_ENTER(env, that, RoundRect_FUNC);
 	rc = (jboolean)RoundRect((HDC)arg0, arg1, arg2, arg3, arg4, arg5, arg6);
 	OS_NATIVE_EXIT(env, that, RoundRect_FUNC);
+	return rc;
+}
+#endif
+
+#ifndef NO_RtlGetVersion
+JNIEXPORT jint JNICALL OS_NATIVE(RtlGetVersion)
+	(JNIEnv *env, jclass that, jobject arg0)
+{
+	OSVERSIONINFOEX _arg0, *lparg0=NULL;
+	jint rc = 0;
+	OS_NATIVE_ENTER(env, that, RtlGetVersion_FUNC);
+	if (arg0) if ((lparg0 = getOSVERSIONINFOEXFields(env, arg0, &_arg0)) == NULL) goto fail;
+/*
+	rc = (jint)RtlGetVersion(lparg0);
+*/
+	{
+		OS_LOAD_FUNCTION(fp, RtlGetVersion)
+		if (fp) {
+			rc = (jint)((jint (CALLING_CONVENTION*)(OSVERSIONINFOEX *))fp)(lparg0);
+		}
+	}
+fail:
+	if (arg0 && lparg0) setOSVERSIONINFOEXFields(env, arg0, lparg0);
+	OS_NATIVE_EXIT(env, that, RtlGetVersion_FUNC);
 	return rc;
 }
 #endif
@@ -8411,6 +8484,18 @@ JNIEXPORT jboolean JNICALL OS_NATIVE(SetCursorPos)
 }
 #endif
 
+#ifndef NO_SetDCBrushColor
+JNIEXPORT jint JNICALL OS_NATIVE(SetDCBrushColor)
+	(JNIEnv *env, jclass that, jlong arg0, jint arg1)
+{
+	jint rc = 0;
+	OS_NATIVE_ENTER(env, that, SetDCBrushColor_FUNC);
+	rc = (jint)SetDCBrushColor((HDC)arg0, arg1);
+	OS_NATIVE_EXIT(env, that, SetDCBrushColor_FUNC);
+	return rc;
+}
+#endif
+
 #ifndef NO_SetDIBColorTable
 JNIEXPORT jint JNICALL OS_NATIVE(SetDIBColorTable)
 	(JNIEnv *env, jclass that, jlong arg0, jint arg1, jint arg2, jbyteArray arg3)
@@ -9390,6 +9475,18 @@ JNIEXPORT jboolean JNICALL OS_NATIVE(UnhookWindowsHookEx)
 }
 #endif
 
+#ifndef NO_UnloadKeyboardLayout
+JNIEXPORT jboolean JNICALL OS_NATIVE(UnloadKeyboardLayout)
+	(JNIEnv *env, jclass that, jlong arg0)
+{
+	jboolean rc = 0;
+	OS_NATIVE_ENTER(env, that, UnloadKeyboardLayout_FUNC);
+	rc = (jboolean)UnloadKeyboardLayout((HKL)arg0);
+	OS_NATIVE_EXIT(env, that, UnloadKeyboardLayout_FUNC);
+	return rc;
+}
+#endif
+
 #ifndef NO_UnmapViewOfFile
 JNIEXPORT jboolean JNICALL OS_NATIVE(UnmapViewOfFile)
 	(JNIEnv *env, jclass that, jlong arg0)
@@ -9414,6 +9511,18 @@ JNIEXPORT jboolean JNICALL OS_NATIVE(UnregisterClass)
 fail:
 	if (arg0 && lparg0) (*env)->ReleaseCharArrayElements(env, arg0, lparg0, JNI_ABORT);
 	OS_NATIVE_EXIT(env, that, UnregisterClass_FUNC);
+	return rc;
+}
+#endif
+
+#ifndef NO_UnregisterHotKey
+JNIEXPORT jboolean JNICALL OS_NATIVE(UnregisterHotKey)
+	(JNIEnv *env, jclass that, jlong arg0, jint arg1)
+{
+	jboolean rc = 0;
+	OS_NATIVE_ENTER(env, that, UnregisterHotKey_FUNC);
+	rc = (jboolean)UnregisterHotKey((HWND)arg0, arg1);
+	OS_NATIVE_EXIT(env, that, UnregisterHotKey_FUNC);
 	return rc;
 }
 #endif

@@ -21,7 +21,6 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.lang.reflect.Field;
-import java.util.function.BooleanSupplier;
 
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.events.DisposeListener;
@@ -75,7 +74,7 @@ public void tearDown() {
 		}
 	}
 	assertTrue(shell.isDisposed());
-	if(SwtTestUtil.isCocoa) {
+	if(SwtTestUtil.isCocoa || SwtTestUtil.isGTK) {
 		// process pending events to properly close the shell
 		while (display != null && !display.isDisposed() && display.readAndDispatch()) {
 		}
@@ -213,7 +212,7 @@ protected void hookExpectedEvents(Widget w, String[] types, final java.util.List
 }
 
 protected String getTestName() {
-	String test = name.getMethodName();
+	String test = "" + name.getMethodName();
 	int index = test.lastIndexOf('_');
 	if(index != -1)
 		test = test.substring(index+1);
@@ -233,22 +232,6 @@ protected String getClassName() {
 	if(index != -1)
 		clazz = clazz.substring(index+1);
 	return clazz;
-}
-
-protected void processEvents(int timeoutMs, BooleanSupplier breakCondition) throws InterruptedException {
-	if (breakCondition == null) {
-		breakCondition = () -> false;
-	}
-	long targetTimestamp = System.currentTimeMillis() + timeoutMs;
-	while (!breakCondition.getAsBoolean()) {
-		if (!shell.getDisplay().readAndDispatch()) {
-			if (System.currentTimeMillis() < targetTimestamp) {
-				Thread.sleep(50);
-			} else {
-				return;
-			}
-		}
-	}
 }
 
 /**

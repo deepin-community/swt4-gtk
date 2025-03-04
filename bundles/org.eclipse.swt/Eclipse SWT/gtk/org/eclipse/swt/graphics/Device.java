@@ -20,7 +20,6 @@ import java.util.stream.*;
 
 import org.eclipse.swt.*;
 import org.eclipse.swt.internal.*;
-import org.eclipse.swt.internal.cairo.*;
 import org.eclipse.swt.internal.gtk.*;
 import org.eclipse.swt.internal.gtk3.*;
 import org.eclipse.swt.internal.gtk4.*;
@@ -69,7 +68,7 @@ public abstract class Device implements Drawable {
 	Object trackingLock;
 
 	/* Disposed flag */
-	boolean disposed;
+	volatile boolean disposed;
 
 	/* Warning and Error Handlers */
 	long logProc;
@@ -269,16 +268,24 @@ protected void create (DeviceData data) {
  */
 public void dispose () {
 	synchronized (Device.class) {
-		if (isDisposed()) return;
-		checkDevice ();
-		release ();
-		destroy ();
-		deregister (this);
-		xDisplay = 0;
-		disposed = true;
-		if (tracking) {
-			tracking = false;
-			stopTracking();
+		try (ExceptionStash exceptions = new ExceptionStash ()) {
+			if (isDisposed ()) return;
+			checkDevice ();
+
+			try {
+				release ();
+			} catch (Error | RuntimeException ex) {
+				exceptions.stash (ex);
+			}
+
+			destroy ();
+			deregister (this);
+			xDisplay = 0;
+			disposed = true;
+			if (tracking) {
+				tracking = false;
+				stopTracking ();
+			}
 		}
 	}
 }
@@ -689,27 +696,14 @@ protected void init () {
 	this.dpi = getDPI();
 	DPIUtil.setDeviceZoom (getDeviceZoom ());
 
-	if (GTK.GTK_VERSION >= OS.VERSION(3, 22, 0)) {
-		double sx[] = new double[1];
-		double sy[] = new double[1];
-		long gdkResource;
-		long surface;
-		if (GTK.GTK4) {
-			surface = Cairo.cairo_image_surface_create(Cairo.CAIRO_FORMAT_RGB24, 10, 10);
-		} else {
-			gdkResource = GDK.gdk_get_default_root_window();
-			surface = GDK.gdk_window_create_similar_surface(gdkResource, Cairo.CAIRO_CONTENT_COLOR, 10, 10);
-		}
-		Cairo.cairo_surface_get_device_scale(surface, sx, sy);
-		DPIUtil.setUseCairoAutoScale((sx[0]*100) == DPIUtil.getDeviceZoom() || OS.isGNOME);
-	}
+	DPIUtil.setUseCairoAutoScale(true);
 
 	/* Initialize the system font slot */
 	long [] defaultFontArray = new long [1];
 	long defaultFont = 0;
 	long context = GTK.gtk_widget_get_style_context (shellHandle);
 	if ("ppc64le".equals(System.getProperty("os.arch"))) {
-		defaultFont = GTK.gtk_style_context_get_font (context, GTK.GTK_STATE_FLAG_NORMAL);
+		defaultFont = GTK3.gtk_style_context_get_font (context, GTK.GTK_STATE_FLAG_NORMAL);
 	} else {
 		if (GTK.GTK4) {
 			long[] fontPtr = new long[1];
@@ -727,7 +721,7 @@ protected void init () {
 		} else {
 			GTK.gtk_style_context_save(context);
 			GTK.gtk_style_context_set_state(context, GTK.GTK_STATE_FLAG_NORMAL);
-			GTK.gtk_style_context_get(context, GTK.GTK_STATE_FLAG_NORMAL, GTK.gtk_style_property_font, defaultFontArray, 0);
+			GTK3.gtk_style_context_get(context, GTK.GTK_STATE_FLAG_NORMAL, GTK.gtk_style_property_font, defaultFontArray, 0);
 			GTK.gtk_style_context_restore(context);
 			defaultFont = defaultFontArray [0];
 		}
@@ -814,14 +808,14 @@ private void overrideThemeValues () {
 			System.err.println("SWT Warning: Override of theme values failed. Reason: could not acquire display or provider.");
 			return;
 		}
-		GTK.gtk_style_context_add_provider_for_display (display, provider, GTK.GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+		GTK4.gtk_style_context_add_provider_for_display (display, provider, GTK.GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 	} else {
 		long screen = GDK.gdk_screen_get_default();
 		if (screen == 0 || provider == 0) {
 			System.err.println("SWT Warning: Override of theme values failed. Reason: could not acquire screen or provider.");
 			return;
 		}
-		GTK.gtk_style_context_add_provider_for_screen (screen, provider, GTK.GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+		GTK3.gtk_style_context_add_provider_for_screen (screen, provider, GTK.GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 	}
 	if (GTK.GTK4) {
 		GTK4.gtk_css_provider_load_from_data (provider, Converter.wcsToMbcs (combinedCSS.toString(), true), -1);
@@ -877,9 +871,7 @@ public abstract void internal_dispose_GC (long hDC, GCData data);
  * @return <code>true</code> when the device is disposed and <code>false</code> otherwise
  */
 public boolean isDisposed () {
-	synchronized (Device.class) {
-		return disposed;
-	}
+	return disposed;
 }
 
 /**
@@ -1102,27 +1094,18 @@ protected int getDeviceZoom() {
 	 * if gdk_screen_set_resolution has not been called.
 	 */
 	int dpi = 96;
-	if (GTK.GTK_VERSION >= OS.VERSION(3, 22, 0)) {
-		long display = GDK.gdk_display_get_default();
-		long monitor;
+	long display = GDK.gdk_display_get_default();
+	long monitor;
 
-		if (GTK.GTK4) {
-			long surface = GTK4.gtk_native_get_surface(GTK4.gtk_widget_get_native(shellHandle));
-			monitor = GDK.gdk_display_get_monitor_at_surface(display, surface);
-		} else {
-			monitor = GDK.gdk_display_get_monitor_at_point(display, 0, 0);
-		}
-
-		int scale = GDK.gdk_monitor_get_scale_factor(monitor);
-		dpi = dpi * scale;
+	if (GTK.GTK4) {
+		long surface = GTK4.gtk_native_get_surface(GTK4.gtk_widget_get_native(shellHandle));
+		monitor = GDK.gdk_display_get_monitor_at_surface(display, surface);
 	} else {
-		long screen = GDK.gdk_screen_get_default();
-		dpi = (int) GDK.gdk_screen_get_resolution (screen);
-		if (dpi <= 0) dpi = 96; // gdk_screen_get_resolution returns -1 in case of error
-		int monitor_num = GDK.gdk_screen_get_monitor_at_point (screen, 0, 0);
-		int scale = GDK.gdk_screen_get_monitor_scale_factor (screen, monitor_num);
-		dpi = dpi * scale;
+		monitor = GDK.gdk_display_get_monitor_at_point(display, 0, 0);
 	}
+
+	int scale = GDK.gdk_monitor_get_scale_factor(monitor);
+	dpi = dpi * scale;
 
 	return DPIUtil.mapDPIToZoom (dpi);
 }

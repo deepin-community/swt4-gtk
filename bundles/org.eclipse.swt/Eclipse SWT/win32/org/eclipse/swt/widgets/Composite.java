@@ -916,12 +916,19 @@ void releaseParent () {
 
 @Override
 void releaseChildren (boolean destroy) {
-	for (Control child : _getChildren ()) {
-		if (child != null && !child.isDisposed ()) {
-			child.release (false);
+	try (ExceptionStash exceptions = new ExceptionStash ()) {
+		for (Control child : _getChildren ()) {
+			if (child == null || child.isDisposed ())
+				continue;
+
+			try {
+				child.release (false);
+			} catch (Error | RuntimeException ex) {
+				exceptions.stash (ex);
+			}
 		}
+		super.releaseChildren (destroy);
 	}
-	super.releaseChildren (destroy);
 }
 
 @Override
@@ -1066,10 +1073,10 @@ public boolean setFocus () {
 	checkWidget ();
 	Control [] children = _getChildren ();
 	for (Control child : children) {
-		if (child.setRadioFocus (false)) return true;
+		if (child.getVisible() && child.setRadioFocus (false)) return true;
 	}
 	for (Control child : children) {
-		if (child.setFocus ()) return true;
+		if (child.getVisible() && child.setFocus ()) return true;
 	}
 	return super.setFocus ();
 }
@@ -1952,6 +1959,11 @@ LRESULT wmNotify (NMHDR hdr, long wParam, long lParam) {
 		}
 	}
 	return super.wmNotify (hdr, wParam, lParam);
+}
+
+@Override
+public String toString() {
+	return super.toString() + " [layout=" + layout + "]";
 }
 
 }

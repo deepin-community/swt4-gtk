@@ -35,35 +35,8 @@
 #include <locale.h>
 #include <unistd.h>
 
-#ifndef _WIN32
 #include <dlfcn.h>
 #include <gtk/gtkunixprint.h>
-#else
-#include <windows.h>
-//#define NO_realpath // TODO [win32] use GetFullPathName instead; 
-
-#define NO_gtk_1enumerate_1printers
-#define NO_gtk_1printer_1get_1name
-#define NO_gtk_1printer_1is_1default
-#define NO_gtk_1print_1job_1get_1surface
-#define NO_gtk_1print_1unix_1dialog_1get_1current_1page
-#define NO_gtk_1print_1unix_1dialog_1get_1selected_1printer
-#define NO_gtk_1print_1unix_1dialog_1get_1settings
-#define NO_gtk_1print_1unix_1dialog_1set_1settings
-#define NO_gtk_1print_1unix_1dialog_1get_1page_1setup
-#define NO_gtk_1print_1unix_1dialog_1set_1page_1setup
-#define NO_gtk_1printer_1get_1backend
-#define NO_gtk_1print_1unix_1dialog_1new
-#define NO_gtk_1print_1job_1new
-#define NO_gtk_1print_1job_1send
-#define NO_gtk_1print_1unix_1dialog_1set_1current_1page
-#define NO_gtk_1print_1unix_1dialog_1set_1embed_1page_1setup
-#define NO_gtk_1print_1unix_1dialog_1set_1manual_1capabilities
-
-// map realpath to a similar function in win32
-#define realpath(N,R) _fullpath((R),(N),_MAX_PATH)
-#endif
-
 
 #define OS_LOAD_FUNCTION LOAD_FUNCTION
 
@@ -72,16 +45,6 @@
 // Hard-link code generated from GDK.java to LIB_GDK
 #define GDK_LOAD_FUNCTION(var, name) LOAD_FUNCTION_LIB(var, LIB_GDK, name)
 
-#ifdef _WIN32
-#define LOAD_FUNCTION_LIB(var, libname, name) \
-		static int initialized = 0; \
-		static FARPROC var = NULL; \
-		if (!initialized) { \
-			HMODULE hm = LoadLibrary(libname); \
-			if (hm) var = GetProcAddress(hm, #name); \
-			initialized = 1; \
-		}
-#else
 #define LOAD_FUNCTION_LIB(var, libname, name) \
 		static int initialized = 0; \
 		static void *var = NULL; \
@@ -91,8 +54,6 @@
 			initialized = 1; \
 	                CHECK_DLERROR \
 		}
-#endif
-
 
 #if defined(GDK_WINDOWING_X11)
 #if !GTK_CHECK_VERSION(4,0,0)
@@ -171,55 +132,10 @@
 #if GTK_CHECK_VERSION(4,0,0)
 #define GTK4 1
 
-// Structs which do not exist on GTK4
-#define NO_GtkTargetEntry
-#define NO_GdkEventWindowState
-#define NO_GdkWindowAttr
-#define NO_GdkEvent
-#define NO_GdkEventButton
-#define NO_GdkEventCrossing
-#define NO_GdkEventFocus
-#define NO_GdkEventKey
-#define NO_GdkEventMotion
-#define NO_GdkEventScroll
-#define NO_GdkGeometry
-
-// Memmoves for those structs which were removed in GTK4
-#define NO_memmove__ILorg_eclipse_swt_internal_gtk_GtkTargetEntry_2I
-#define NO_memmove__JLorg_eclipse_swt_internal_gtk_GtkTargetEntry_2J
-#define NO_memmove__LLorg_eclipse_swt_internal_gtk_GtkTargetEntry_2II
-#define NO_memmove__LLorg_eclipse_swt_internal_gtk_GtkTargetEntry_2JJ
-#define NO_memmove__Iorg_eclipse_swt_internal_gtk_GdkEvent_2I
-#define NO_memmove__Jorg_eclipse_swt_internal_gtk_GdkEvent_2J
-#define NO_memmove__ILorg_eclipse_swt_internal_gtk_GdkEventButton_2I
-#define NO_memmove__JLorg_eclipse_swt_internal_gtk_GdkEventButton_2J
-#define NO_memmove__Lorg_eclipse_swt_internal_gtk_GdkEventButton_2II
-#define NO_memmove__Lorg_eclipse_swt_internal_gtk_GdkEventButton_2JJ
-#define NO_memmove__Iorg_eclipse_swt_internal_gtk_GdkEventCrossing_2I
-#define NO_memmove__Jorg_eclipse_swt_internal_gtk_GdkEventCrossing_2J
-#define NO_memmove__Lorg_eclipse_swt_internal_gtk_GdkEventCrossing_2II
-#define NO_memmove__Lorg_eclipse_swt_internal_gtk_GdkEventCrossing_2JJ
-#define NO_memmove__Iorg_eclipse_swt_internal_gtk_GdkEventFocus_2I
-#define NO_memmove__Jorg_eclipse_swt_internal_gtk_GdkEventFocus_2J
-#define NO_memmove__Lorg_eclipse_swt_internal_gtk_GdkEventFocus_2II
-#define NO_memmove__Lorg_eclipse_swt_internal_gtk_GdkEventFocus_2JJ
-#define NO_memmove__ILorg_eclipse_swt_internal_gtk_GdkEventKey_2I
-#define NO_memmove__JLorg_eclipse_swt_internal_gtk_GdkEventKey_2J
-#define NO_memmove__Lorg_eclipse_swt_internal_gtk_GdkEventKey_2II
-#define NO_memmove__Lorg_eclipse_swt_internal_gtk_GdkEventKey_2JJ
-#define NO_memmove__Lorg_eclipse_swt_internal_gtk_GdkEventMotion_2II
-#define NO_memmove__Lorg_eclipse_swt_internal_gtk_GdkEventMotion_2JJ
-#define NO_memmove__Iorg_eclipse_swt_internal_gtk_GdkEventWindowState_2I
-#define NO_memmove__Jorg_eclipse_swt_internal_gtk_GdkEventWindowState_2J
-#define NO_memmove__Lorg_eclipse_swt_internal_gtk_GdkEventWindowState_2II
-#define NO_memmove__Lorg_eclipse_swt_internal_gtk_GdkEventWindowState_2JJ
-
 // No GtkStatusIcon on GTK4
-#define NO_gtk_1status_1icon_1get_1geometry
 #define NO_gtk_1status_1icon_1position_1menu_1func
 
 // No GdkScreen on GTK4, including parameter casts
-#define NO_gtk_1style_1context_1add_1provider_1for_1screen
 #define NO_gdk_1screen_1get_1default
 #define NO_gdk_1screen_1get_1monitor_1at_1point
 #define NO_gdk_1screen_1get_1monitor_1at_1window
@@ -250,9 +166,6 @@
 #define NO_gdk_1selection_1owner_1get
 #define NO_gdk_1visual_1get_1depth
 #define NO_gdk_1pixbuf_1get_1from_1window
-
-// Some sizing functions are not available on GTK4
-#define NO_gtk_1window_1set_1geometry_1hints
 
 // No GdkWindow on GTK4, this includes parameter casting
 #define NO_gtk_1im_1context_1set_1client_1window
@@ -289,7 +202,6 @@
 #define NO_gdk_1window_1lower
 #define NO_gdk_1window_1move
 #define NO_gdk_1window_1move_1resize
-#define NO_gdk_1window_1new
 #define NO_gdk_1window_1process_1updates
 #define NO_gdk_1window_1resize
 #define NO_gdk_1window_1restack
@@ -306,9 +218,6 @@
 #define NO_gdk_1drag_1context_1get_1dest_1window
 #define NO_gdk_1drag_1context_1list_1targets
 #define NO_gdk_1drag_1status
-
-// Some widgets have removed access to their GdkWindows in GTK4
-#define NO_gtk_1tree_1view_1get_1bin_1window
 
 // Event related functions removed in GTK4
 #define NO_gdk_1event_1copy
@@ -342,9 +251,6 @@
 #define NO_gtk_1drag_1get_1data__JJJ
 #define NO_gdk_1text_1property_1to_1utf8_1list_1for_1display
 #define NO_gdk_1x11_1display_1utf8_1to_1compound_1text
-
-// GtkTreeViewColumn changes
-#define NO_gtk_1tree_1view_1column_1cell_1get_1size__JLorg_eclipse_swt_internal_gtk_GdkRectangle_2_3I_3I_3I_3I
 
 // Accessibility interface changes
 #define NO_GTK_1TYPE_1TEXT_1VIEW_1ACCESSIBLE
@@ -392,10 +298,6 @@
 #define NO_graphene_1rect_1free
 #define NO_graphene_1rect_1init
 
-// Miscellaneous functions not present on GTK3
-#define NO_gtk_1style_1context_1add_1provider_1for_1display
-#define NO_gtk_1style_1context_1get_1margin
-
 // GdkCursor API changes from GTK3 -> GTK4
 #define NO_gdk_1cursor_1new_1from_1name___3BI
 #define NO_gdk_1cursor_1new_1from_1name___3BJ
@@ -429,9 +331,6 @@
 #define NO_gdk_1popup_1get_1parent
 #define NO_gdk_1popup_1layout_1new
 #define NO_gdk_1popup_1present
-
-// GtkTreeViewColumn
-#define NO_gtk_1tree_1view_1column_1cell_1get_1size__J_3I_3I_3I_3I
 
 // SWTFixed changes
 #define NO_swt_1fixed_1add

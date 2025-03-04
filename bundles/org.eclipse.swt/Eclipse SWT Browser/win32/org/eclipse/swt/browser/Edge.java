@@ -13,8 +13,11 @@
  *******************************************************************************/
 package org.eclipse.swt.browser;
 
+import java.net.*;
 import java.nio.charset.*;
+import java.time.*;
 import java.util.*;
+import java.util.function.*;
 
 import org.eclipse.swt.*;
 import org.eclipse.swt.graphics.*;
@@ -43,9 +46,10 @@ class Edge extends WebBrowser {
 
 	static String DataDir;
 	static ICoreWebView2Environment Environment;
+	static ArrayList<Edge> Instances = new ArrayList<>();
 
 	ICoreWebView2 webView;
-	ICoreWebView2_2 webView2;
+	ICoreWebView2_2 webView_2;
 	ICoreWebView2Controller controller;
 	ICoreWebView2Settings settings;
 	ICoreWebView2Environment2 environment2;
@@ -53,6 +57,113 @@ class Edge extends WebBrowser {
 	static boolean inCallback;
 	boolean inNewWindow;
 	HashMap<Long, LocationEvent> navigations = new HashMap<>();
+
+	static {
+		NativeClearSessions = () -> {
+			ICoreWebView2CookieManager manager = getCookieManager();
+			if (manager == null) return;
+
+			long[] ppv = new long[1];
+			int hr = callAndWait(ppv, completion -> manager.GetCookies(null, completion));
+			if (hr != COM.S_OK) error(SWT.ERROR_NO_HANDLES, hr);
+			ICoreWebView2CookieList cookieList = new ICoreWebView2CookieList(ppv[0]);
+
+			int[] count = new int[1], isSession = new int[1];
+			cookieList.get_Count(count);
+			for (int i = 0; i < count[0]; i++) {
+				hr = cookieList.GetValueAtIndex(i, ppv);
+				if (hr != COM.S_OK) error(SWT.ERROR_NO_HANDLES, hr);
+				ICoreWebView2Cookie cookie = new ICoreWebView2Cookie(ppv[0]);
+				cookie.get_IsSession(isSession);
+				if (isSession[0] != 0) {
+					manager.DeleteCookie(cookie);
+				}
+				cookie.Release();
+			}
+			cookieList.Release();
+			manager.Release();
+
+			// Bug in WebView2. DeleteCookie is asynchronous. Wait a short while for it to take effect.
+			try {
+				Thread.sleep(5);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+			}
+		};
+
+		NativeGetCookie = () -> {
+			ICoreWebView2CookieManager manager = getCookieManager();
+			if (manager == null) return;
+
+			char[] uri = stringToWstr(CookieUrl);
+			long[] ppv = new long[1];
+			int hr = callAndWait(ppv, completion -> manager.GetCookies(uri, completion));
+			if (hr != COM.S_OK) error(SWT.ERROR_NO_HANDLES, hr);
+			ICoreWebView2CookieList cookieList = new ICoreWebView2CookieList(ppv[0]);
+
+			int[] count = new int[1];
+			cookieList.get_Count(count);
+			for (int i = 0; i < count[0]; i++) {
+				hr = cookieList.GetValueAtIndex(i, ppv);
+				if (hr != COM.S_OK) error(SWT.ERROR_NO_HANDLES, hr);
+				ICoreWebView2Cookie cookie = new ICoreWebView2Cookie(ppv[0]);
+				cookie.get_Name(ppv);
+				String name = wstrToString(ppv[0], true);
+				if (CookieName.equals(name)) {
+					cookie.get_Value(ppv);
+					CookieValue = wstrToString(ppv[0], true);
+				}
+				cookie.Release();
+				if (CookieValue != null) {
+					break;
+				}
+			}
+			cookieList.Release();
+			manager.Release();
+		};
+
+		NativeSetCookie = () -> {
+			HttpCookie parser = HttpCookie.parse(CookieValue).get(0);
+			URL origin;
+			try {
+				origin = new URL(CookieUrl);
+			} catch (MalformedURLException e) {
+				return;
+			}
+			if (parser.getDomain() == null) {
+				parser.setDomain(origin.getHost());
+			}
+			if (parser.getPath() == null) {
+				parser.setPath(origin.getPath());
+			}
+
+			ICoreWebView2CookieManager manager = getCookieManager();
+			if (manager == null) return;
+
+			char[] name = stringToWstr(parser.getName());
+			char[] value = stringToWstr(parser.getValue());
+			char[] domain = stringToWstr(parser.getDomain());
+			char[] path = stringToWstr(parser.getPath());
+			long[] ppv = new long[1];
+			int hr = manager.CreateCookie(name, value, domain, path, ppv);
+			if (hr != COM.S_OK) {
+				manager.Release();
+				return;
+			}
+			ICoreWebView2Cookie cookie = new ICoreWebView2Cookie(ppv[0]);
+
+			if (parser.getMaxAge() != -1) {
+				cookie.put_Expires(Instant.now().getEpochSecond() + parser.getMaxAge());
+			}
+			cookie.put_IsSecure(parser.getSecure());
+			cookie.put_IsHttpOnly(parser.isHttpOnly());
+			hr = manager.AddOrUpdateCookie(cookie);
+			cookie.Release();
+			manager.Release();
+
+			CookieResult = hr >= COM.S_OK;
+		};
+	}
 
 static String wstrToString(long psz, boolean free) {
 	if (psz == 0) return "";
@@ -69,6 +180,10 @@ static String bstrToString(long bstr) {
 	char[] data = new char[len];
 	OS.MoveMemory(data, bstr, len * Character.BYTES);
 	return String.valueOf(data);
+}
+
+static char[] stringToWstr(String s) {
+	return (s != null) ? (s + "\0").toCharArray() : null;
 }
 
 static void error(int code, int hr) {
@@ -92,6 +207,79 @@ IUnknown newHostObject(ICoreWebView2SwtHost handler) {
 	long pdisp = COM.CreateSwtWebView2Host(handler);
 	if (pdisp == 0) error(SWT.ERROR_NO_HANDLES, COM.E_OUTOFMEMORY);
 	return new IUnknown(pdisp);
+}
+
+static int callAndWait(long[] ppv, ToIntFunction<IUnknown> callable) {
+	int[] phr = {COM.S_OK};
+	IUnknown completion = newCallback((result, pv) -> {
+		phr[0] = (int)result;
+		if ((int)result == COM.S_OK) {
+			ppv[0] = pv;
+			new IUnknown(pv).AddRef();
+		}
+		return COM.S_OK;
+	});
+	ppv[0] = 0;
+	phr[0] = callable.applyAsInt(completion);
+	completion.Release();
+	while (phr[0] == COM.S_OK && ppv[0] == 0) {
+		processNextOSMessage();
+	}
+	return phr[0];
+}
+
+static int callAndWait(String[] pstr, ToIntFunction<IUnknown> callable) {
+	int[] phr = new int[1];
+	IUnknown completion = newCallback((result, pszJson) -> {
+		phr[0] = (int)result;
+		if ((int)result == COM.S_OK) {
+			pstr[0] = wstrToString(pszJson, false);
+		}
+		return COM.S_OK;
+	});
+	pstr[0] = null;
+	phr[0] = callable.applyAsInt(completion);
+	completion.Release();
+	while (phr[0] == COM.S_OK && pstr[0] == null) {
+		processNextOSMessage();
+	}
+	return phr[0];
+}
+
+/**
+ * Processes a single OS message using {@link Display#readAndDispatch()}. This
+ * is required for processing the OS events during browser initialization, since
+ * Edge browser initialization happens asynchronously.
+ * <p>
+ * {@link Display#readAndDisplay()} also processes events scheduled for
+ * asynchronous execution via {@link Display#asyncExec(Runnable)}. This may
+ * include events such as the disposal of the browser's parent composite, which
+ * leads to a failure in browser initialization if processed in between the OS
+ * events for initialization. Thus, this method does not implement an ordinary
+ * readAndDispatch loop, but waits for an OS event to be processed.
+ */
+private static void processNextOSMessage() {
+	Display display = Display.getCurrent();
+	MSG msg = new MSG();
+	while (!OS.PeekMessage (msg, 0, 0, 0, OS.PM_NOREMOVE)) {
+		display.sleep();
+	}
+	display.readAndDispatch();
+}
+
+static ICoreWebView2CookieManager getCookieManager() {
+	if (Instances.isEmpty()) {
+		SWT.error(SWT.ERROR_NOT_IMPLEMENTED, null, " [WebView2: cookie access requires a Browser instance]");
+	}
+	Edge instance = Instances.get(0);
+	if (instance.webView_2 == null) {
+		SWT.error(SWT.ERROR_NOT_IMPLEMENTED, null, " [WebView2 version 88+ is required to access cookies]");
+	}
+
+	long[] ppv = new long[1];
+	int hr = instance.webView_2.get_CookieManager(ppv);
+	if (hr != COM.S_OK) error(SWT.ERROR_NO_HANDLES, hr);
+	return new ICoreWebView2CookieManager(ppv[0]);
 }
 
 void checkDeadlock() {
@@ -122,42 +310,29 @@ ICoreWebView2Environment createEnvironment() {
 	long pOpts = COM.CreateSwtWebView2Options();
 	if (pOpts == 0) error(SWT.ERROR_NO_HANDLES, COM.E_OUTOFMEMORY);
 	ICoreWebView2EnvironmentOptions options = new ICoreWebView2EnvironmentOptions(pOpts);
-	char[] pVersion = (SDK_TARGET_VERSION + "\0").toCharArray();
+	char[] pVersion = stringToWstr(SDK_TARGET_VERSION);
 	options.put_TargetCompatibleBrowserVersion(pVersion);
 	if (browserArgs != null) {
-		char[] pBrowserArgs = (browserArgs + "\0").toCharArray();
+		char[] pBrowserArgs = stringToWstr(browserArgs);
 		options.put_AdditionalBrowserArguments(pBrowserArgs);
 	}
 	if (language != null) {
-		char[] pLanguage = (language + "\0").toCharArray();
+		char[] pLanguage = stringToWstr(language);
 		options.put_Language(pLanguage);
 	}
 
 	// Create the environment
-	char[] pBrowserDir = (browserDir != null) ? (browserDir + "\0").toCharArray() : null;
-	char[] pDataDir = (dataDir + "\0").toCharArray();
-	int[] pResult = {COM.S_OK};
-	long[] ppEnv = new long[1];
-	IUnknown completion = newCallback((result, pEnv) -> {
-		pResult[0] = (int)result;
-		if ((int)result == COM.S_OK) {
-			ppEnv[0] = pEnv;
-			new IUnknown(pEnv).AddRef();
-		}
-		return COM.S_OK;
-	});
-	pResult[0] = COM.CreateCoreWebView2EnvironmentWithOptions(
-						pBrowserDir, pDataDir, options.getAddress(), completion.getAddress());
-	completion.Release();
+	char[] pBrowserDir = stringToWstr(browserDir);
+	char[] pDataDir = stringToWstr(dataDir);
+	long[] ppv = new long[1];
+	int hr = callAndWait(ppv, completion -> COM.CreateCoreWebView2EnvironmentWithOptions(
+					pBrowserDir, pDataDir, options.getAddress(), completion.getAddress()));
 	options.Release();
-	if (pResult[0] == OS.HRESULT_FROM_WIN32(OS.ERROR_FILE_NOT_FOUND)) {
+	if (hr == OS.HRESULT_FROM_WIN32(OS.ERROR_FILE_NOT_FOUND)) {
 		SWT.error(SWT.ERROR_NOT_IMPLEMENTED, null, " [WebView2 runtime not found]");
 	}
-	while (pResult[0] == COM.S_OK && ppEnv[0] == 0) {
-		if (!display.readAndDispatch()) display.sleep();
-	}
-	if (pResult[0] != COM.S_OK) error(SWT.ERROR_NO_HANDLES, pResult[0]);
-	Environment = new ICoreWebView2Environment(ppEnv[0]);
+	if (hr != COM.S_OK) error(SWT.ERROR_NO_HANDLES, hr);
+	Environment = new ICoreWebView2Environment(ppv[0]);
 	DataDir = dataDir;
 
 	// Save Edge version for reporting
@@ -179,34 +354,20 @@ public void create(Composite parent, int style) {
 	checkDeadlock();
 	ICoreWebView2Environment environment = createEnvironment();
 
-	int[] pResult = {COM.S_OK};
-	long[] ppv = new long[1], ppHost = new long[1];
+	long[] ppv = new long[1];
 	int hr = environment.QueryInterface(COM.IID_ICoreWebView2Environment2, ppv);
 	if (hr == COM.S_OK) environment2 = new ICoreWebView2Environment2(ppv[0]);
 
-	IUnknown completion = newCallback((result, pHost) -> {
-		pResult[0] = (int)result;
-		if ((int)result == COM.S_OK) {
-			ppHost[0] = pHost;
-			new IUnknown(pHost).AddRef();
-		}
-		return COM.S_OK;
-	});
-	pResult[0] = environment.CreateCoreWebView2Controller(browser.handle, completion);
-	completion.Release();
-	Display display = browser.getDisplay();
-	while (pResult[0] == COM.S_OK && ppHost[0] == 0) {
-		if (!display.readAndDispatch()) display.sleep();
-	}
-	if (pResult[0] != COM.S_OK) error(SWT.ERROR_NO_HANDLES, pResult[0]);
-	controller = new ICoreWebView2Controller(ppHost[0]);
+	hr = callAndWait(ppv, completion -> environment.CreateCoreWebView2Controller(browser.handle, completion));
+	if (hr != COM.S_OK) error(SWT.ERROR_NO_HANDLES, hr);
+	controller = new ICoreWebView2Controller(ppv[0]);
 
 	controller.get_CoreWebView2(ppv);
 	webView = new ICoreWebView2(ppv[0]);
 	webView.get_Settings(ppv);
 	settings = new ICoreWebView2Settings(ppv[0]);
 	hr = webView.QueryInterface(COM.IID_ICoreWebView2_2, ppv);
-	if (hr == COM.S_OK) webView2 = new ICoreWebView2_2(ppv[0]);
+	if (hr == COM.S_OK) webView_2 = new ICoreWebView2_2(ppv[0]);
 
 	long[] token = new long[1];
 	IUnknown handler;
@@ -237,9 +398,9 @@ public void create(Composite parent, int style) {
 	handler = newCallback(this::handleMoveFocusRequested);
 	controller.add_MoveFocusRequested(handler, token);
 	handler.Release();
-	if (webView2 != null) {
+	if (webView_2 != null) {
 		handler = newCallback(this::handleDOMContentLoaded);
-		webView2.add_DOMContentLoaded(handler, token);
+		webView_2.add_DOMContentLoaded(handler, token);
 		handler.Release();
 	}
 
@@ -252,14 +413,18 @@ public void create(Composite parent, int style) {
 	browser.addListener(SWT.FocusIn, this::browserFocusIn);
 	browser.addListener(SWT.Resize, this::browserResize);
 	browser.addListener(SWT.Move, this::browserMove);
+
+	Instances.add(this);
 }
 
 void browserDispose(Event event) {
-	if (webView2 != null) webView2.Release();
+	Instances.remove(this);
+
+	if (webView_2 != null) webView_2.Release();
 	if (environment2 != null) environment2.Release();
 	settings.Release();
 	webView.Release();
-	webView2 = null;
+	webView_2 = null;
 	environment2 = null;
 	settings = null;
 	webView = null;
@@ -304,23 +469,11 @@ public Object evaluate(String script) throws SWTException {
 	// Disallow programmatic execution manually.
 	if (!jsEnabled) return null;
 
-	int[] pResult = new int[1];
+	String script2 = "(function() {try { " + script + " } catch (e) { return '" + ERROR_ID + "' + e.message; } })();\0";
 	String[] pJson = new String[1];
-	IUnknown completion = newCallback((result, pszJson) -> {
-		pResult[0] = (int)result;
-		if ((int)result == COM.S_OK) {
-			pJson[0] = wstrToString(pszJson, false);
-		}
-		return COM.S_OK;
-	});
-	script = "(function() {try { " + script + " } catch (e) { return '" + ERROR_ID + "' + e.message; } })();\0";
-	pResult[0] = webView.ExecuteScript(script.toCharArray(), completion);
-	completion.Release();
-	Display display = browser.getDisplay();
-	while (pResult[0] == COM.S_OK && pJson[0] == null) {
-		if (!display.readAndDispatch()) display.sleep();
-	}
-	if (pResult[0] != COM.S_OK) error(SWT.ERROR_FAILED_EVALUATE, pResult[0]);
+	int hr = callAndWait(pJson, completion -> webView.ExecuteScript(script2.toCharArray(), completion));
+	if (hr != COM.S_OK) error(SWT.ERROR_FAILED_EVALUATE, hr);
+
 	Object data = JSON.parse(pJson[0]);
 	if (data instanceof String && ((String) data).startsWith(ERROR_ID)) {
 		String errorMessage = ((String) data).substring(ERROR_ID.length());
@@ -336,7 +489,7 @@ public boolean execute(String script) {
 	if (!jsEnabled) return false;
 
 	IUnknown completion = newCallback((long result, long json) -> COM.S_OK);
-	int hr = webView.ExecuteScript((script + "\0").toCharArray(), completion);
+	int hr = webView.ExecuteScript(stringToWstr(script), completion);
 	completion.Release();
 	return hr == COM.S_OK;
 }
@@ -522,7 +675,7 @@ int handleNavigationCompleted(long pView, long pArgs, boolean top) {
 	long[] pNavId = new long[1];
 	args.get_NavigationId(pNavId);
 	LocationEvent startEvent = navigations.remove(pNavId[0]);
-	if (webView2 == null && startEvent != null && startEvent.top) {
+	if (webView_2 == null && startEvent != null && startEvent.top) {
 		// If DOMContentLoaded isn't available, fire
 		// ProgressListener.completed from here.
 		sendProgressCompleted();
@@ -672,9 +825,9 @@ public boolean setUrl(String url, String postData, String[] headers) {
 		url = "http://" + url;
 	}
 	int hr;
-	char[] pszUrl = (url + "\0").toCharArray();
+	char[] pszUrl = stringToWstr(url);
 	if (postData != null || headers != null) {
-		if (environment2 == null || webView2 == null) {
+		if (environment2 == null || webView_2 == null) {
 			SWT.error(SWT.ERROR_NOT_IMPLEMENTED, null, " [WebView2 version 88+ is required to set postData and headers]");
 		}
 		long[] ppRequest = new long[1];
@@ -699,7 +852,7 @@ public boolean setUrl(String url, String postData, String[] headers) {
 		if (stream != null) stream.Release();
 		if (hr != COM.S_OK) error(SWT.ERROR_NO_HANDLES, hr);
 		IUnknown request = new IUnknown(ppRequest[0]);
-		hr = webView2.NavigateWithWebResourceRequest(request);
+		hr = webView_2.NavigateWithWebResourceRequest(request);
 		request.Release();
 	} else {
 		hr = webView.Navigate(pszUrl);

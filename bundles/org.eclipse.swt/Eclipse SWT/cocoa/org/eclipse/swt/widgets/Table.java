@@ -552,7 +552,20 @@ void createHandle () {
 	spacing.width = spacing.height = CELL_GAP;
 	widget.setIntercellSpacing(spacing);
 	widget.setDoubleAction(OS.sel_sendDoubleSelection);
-	if (!hasBorder()) widget.setFocusRingType(OS.NSFocusRingTypeNone);
+
+	if (OS.isBigSurOrLater()) {
+		OS.objc_msgSend(widget.id, OS.sel_setStyle, OS.NSTableViewStylePlain);
+	}
+
+	/*
+	 * Table didn't have focus ring in SWT for years, because SWT didn't
+	 * have layer backing, and even when it gets it, there were no focus rings
+	 * due to macOS compatibility code. However, sometimes macOS misbehaves
+	 * (see for example Bug 574618 snippet test 2). On the other hand, most
+	 * macOS builtin apps don't have focus rings for Table, see for example
+	 * Activity Monitor. So just disable it in SWT as well.
+	 */
+	widget.setFocusRingType(OS.NSFocusRingTypeNone);
 
 	headerView = (NSTableHeaderView)new SWTTableHeaderView ().alloc ().init ();
 	widget.setHeaderView (null);
@@ -2646,6 +2659,22 @@ void setFont (NSFont font) {
 	setScrollWidth (items, true);
 }
 
+@Override
+void setFrameSize (long id, long sel, NSSize size) {
+	super.setFrameSize(id, sel, size);
+
+	/*
+	 * Bug 577767: Since macOS 10.15, NSTableView has 'autoresizingMask'
+	 * set to follow resizes of its NSClipView. This sometimes causes
+	 * Table/Tree to have wrong scroll range (note that size of NSClipView
+	 * is what you see and size of NSTableView is the size of entire
+	 * content, this defines scroll range). The workaround is to recalc
+	 * layout after resizing.
+	 */
+	if ((scrollView != null) && (id == scrollView.id))
+		((NSTableView)view).tile();
+}
+
 /**
  * Sets the header background color to the color specified
  * by the argument, or to the default system color if the argument is null.
@@ -3607,39 +3636,66 @@ boolean tableView_writeRowsWithIndexes_toPasteboard(long id, long sel, long arg0
 	return sendMouseEvent(NSApplication.sharedApplication().currentEvent(), SWT.DragDetect, true);
 }
 
+void handleClickSelected() {
+	/*
+	 * When there are multiple selected items and one of them is clicked
+	 * without modifiers, macOS supports two cases:
+	 * 1) For single click, all other items are deselected
+	 * 2) For double-click, selection stays as is, allowing to create
+	 *    double-click event with multiple items.
+	 * In order to distinguish between the two, macOS delays (1) by
+	 * [NSEvent doubleClickInterval] in order to see if it's case (2).
+	 * This causes SWT.Selection to occur after SWT.MouseUp.
+	 *
+	 * Bug 289483: For consistent cross-platform behavior, we want
+	 * SWT.Selection to occur before SWT.MouseUp. The workaround is to
+	 * implement (1) in SWT code and ignore the delayed selection event.
+	 */
+
+	int clickedRow = selectedRowIndex;
+	selectedRowIndex = -1;
+
+	if (clickedRow == -1) return;
+	if (dragDetected) return;
+
+	// Deselect all items except the clicked one
+	NSTableView widget = (NSTableView)view;
+	NSIndexSet selectedRows = widget.selectedRowIndexes ();
+	int count = (int)selectedRows.count();
+	long [] indexBuffer = new long [count];
+	selectedRows.getIndexes(indexBuffer, count, 0);
+	for (int i = 0; i < count; i++) {
+		if (indexBuffer[i] == clickedRow) continue;
+		ignoreSelect = true;
+		widget.deselectRow (indexBuffer[i]);
+		ignoreSelect = false;
+	}
+
+	// Bug 456602: It's possible that item is removed between mouse
+	// down (where 'selectedRowIndex' was cached) and mouse up (current
+	// code). In such case, all other items are still deselected, because
+	// 1) without workaround, selection should have happened in mouse down,
+	//    where item still existed
+	// 2) clicking empty space deselects all items on macOS
+	// If item is deleted, then pending selection is canceled by macOS, so
+	// there's no need to ignore the next selection event.
+	if (clickedRow >= itemCount) return;
+
+	// Emulate SWT.Selection
+	Event event = new Event ();
+	event.item = _getItem(clickedRow);
+	sendSelectionEvent (SWT.Selection, event, false);
+
+	// Ignore real SWT.Selection that will arrive later
+	ignoreSelect = true;
+}
+
 @Override
 boolean sendMouseEvent(NSEvent nsEvent, int type, boolean send) {
 	if (type == SWT.DragDetect) {
 		dragDetected = true;
 	} else if (type == SWT.MouseUp) {
-		/*
-		 * This code path handles the case of an unmodified click on an already-selected row.
-		 * To keep the order of events correct, deselect the other selected items and send the
-		 * selection event before MouseUp is sent. Ignore the next selection event.
-		 */
-		if (selectedRowIndex != -1) {
-			if (dragDetected) {
-				selectedRowIndex = -1;
-			} else {
-				NSTableView widget = (NSTableView)view;
-				NSIndexSet selectedRows = widget.selectedRowIndexes ();
-				int count = (int)selectedRows.count();
-				long [] indexBuffer = new long [count];
-				selectedRows.getIndexes(indexBuffer, count, 0);
-				for (int i = 0; i < count; i++) {
-					if (indexBuffer[i] == selectedRowIndex) continue;
-					ignoreSelect = true;
-					widget.deselectRow (indexBuffer[i]);
-					ignoreSelect = false;
-				}
-
-				Event event = new Event ();
-				event.item = _getItem ((int)selectedRowIndex);
-				selectedRowIndex = -1;
-				sendSelectionEvent (SWT.Selection, event, false);
-				ignoreSelect = true;
-			}
-		}
+		handleClickSelected();
 		dragDetected = false;
 	}
 
@@ -3664,38 +3720,6 @@ void updateCursorRects (boolean enabled) {
 	updateCursorRects (enabled, headerView);
 }
 
-void updateHeaderVisibility() {
-	if (headerView == null) return;
-
-	/*
-	 * Bug in macOS: During 'Control.setParent()',
-	 * '-[NSView _recursiveLostHiddenAncestor]' is called before
-	 * 'NSView._superview' is updated. As a result,
-	 * '-[NSView _updateLayerHiddenFromView]' incorrectly makes layer
-	 * invisible if *old* parent is invisible, even if new parent is
-	 * visible. This causes Table's header to be invisible. The
-	 * workaround is to force layer to be visible.
-	 * Note that this code is copied in Table and Tree.
-	 */
-
-	/*
-	 * Bug only occurs on macOS 10.14 and 10.15, no longer happens
-	 * on macOS 11.0.
-	 */
-	if ((OS.VERSION < OS.VERSION(10, 14, 0)) || OS.isBigSurOrLater()) {
-		return;
-	}
-
-	 /*
-	 * Workaround is only needed for visible controls, because macOS
-	 * doesn't have the bug on 'Control.setVisible()' path.
-	 */
-	if (headerView.isHiddenOrHasHiddenAncestor()) return;
-
-	final CALayer layer = headerView.layer();
-	if (layer != null) layer.setHidden(false);
-}
-
 void updateRowCount() {
 	NSTableView widget = (NSTableView)view;
 	setRedraw(false);
@@ -3704,12 +3728,6 @@ void updateRowCount() {
 	ignoreSelect = false;
 	widget.tile();
 	setRedraw(true);
-}
-
-@Override
-void viewDidMoveToWindow(long id, long sel) {
-	if ((headerView != null) && (id == headerView.id))
-		updateHeaderVisibility();
 }
 
 }

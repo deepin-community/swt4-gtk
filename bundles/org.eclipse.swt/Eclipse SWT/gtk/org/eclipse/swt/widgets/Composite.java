@@ -340,8 +340,13 @@ void createHandle (int index, boolean fixed, boolean scrolled) {
 
 	handle = OS.g_object_new(display.gtk_fixed_get_type(), 0);
 	if (handle == 0) error(SWT.ERROR_NO_HANDLES);
-	if (!GTK.GTK4) GTK3.gtk_widget_set_has_window(handle, true);
-	GTK.gtk_widget_set_can_focus (handle, true);
+
+	if (GTK.GTK4) {
+		GTK4.gtk_widget_set_focusable(handle, true);
+	} else {
+		GTK3.gtk_widget_set_has_window(handle, true);
+	}
+	GTK.gtk_widget_set_can_focus(handle, true);
 
 	if ((style & SWT.EMBEDDED) == 0) {
 		if ((state & CANVAS) != 0) {
@@ -386,15 +391,25 @@ void createHandle (int index, boolean fixed, boolean scrolled) {
 		}
 	}
 	if ((style & SWT.EMBEDDED) != 0) {
-		if (!OS.isX11()) {
+		if (OS.isWayland()) {
 			if (Device.DEBUG) {
 				new SWTError(SWT.ERROR_INVALID_ARGUMENT,"SWT.EMBEDDED is currently not yet supported in Wayland. \nPlease "
 					+ "refer to https://bugs.eclipse.org/bugs/show_bug.cgi?id=514487 for development status.").printStackTrace();
 			}
 		} else {
-			socketHandle = GTK.gtk_socket_new ();
-			if (socketHandle == 0) error (SWT.ERROR_NO_HANDLES);
-			GTK3.gtk_container_add (handle, socketHandle);
+			if (GTK.GTK4) {
+				// From Emmanuele Bassi:
+				// "[Embedding external windows is] not possible any more. Socket/plug were available only on X11,
+				// and foreign windowing system surfaces were a massive complication in the backend code."
+				if (Device.DEBUG) {
+					new SWTError (SWT.ERROR_INVALID_ARGUMENT, "SWT.EMBEDDED is not supported for GTK >= 4.")
+							.printStackTrace ();
+				}
+			} else {
+				socketHandle = GTK.gtk_socket_new ();
+				if (socketHandle == 0) error (SWT.ERROR_NO_HANDLES);
+				GTK3.gtk_container_add (handle, socketHandle);
+			}
 		}
 	}
 
@@ -449,7 +464,7 @@ void adjustChildClipping (long widget) {
 	GtkAllocation clip = new GtkAllocation ();
 	GtkAllocation allocation = new GtkAllocation ();
 	GTK.gtk_widget_get_allocation(widget, allocation);
-	GTK.gtk_widget_get_clip(widget, clip);
+	GTK3.gtk_widget_get_clip(widget, clip);
 	/*
 	 * If the clip is negative, add the x coordinate to the width
 	 * and set the x coordinate to 0.
@@ -467,16 +482,12 @@ void adjustChildClipping (long widget) {
 			// Call gtk_widget_get_preferred_size() to prevent warnings
 			GTK.gtk_widget_get_preferred_size(widget, minimumSize, naturalSize);
 			// Allocate and queue a resize event
-			if (GTK.GTK4) {
-				GTK.gtk_widget_size_allocate(widget, allocation, -1);
-			} else {
-				GTK.gtk_widget_size_allocate(widget, allocation);
-			}
+			gtk_widget_size_allocate(widget, allocation, -1);
 			GTK.gtk_widget_queue_resize(widget);
 		}
 	}
 	// Adjust the clip
-	GTK.gtk_widget_set_clip(widget, allocation);
+	GTK3.gtk_widget_set_clip(widget, allocation);
 }
 
 @Override
@@ -891,6 +902,30 @@ long gtk_button_press_event (long widget, long event) {
 	return result;
 }
 
+
+
+@Override
+boolean gtk4_key_press_event(long controller, int keyval, int keycode, int state, long event) {
+	boolean handled = super.gtk4_key_press_event(controller, keyval, keycode, state, event);
+	if (!handled) {
+		/*
+		* Feature in GTK.  The default behavior when the return key
+		* is pressed is to select the default button.  This is not the
+		* expected behavior for Composite and its subclasses.  The
+		* fix is to avoid calling the default handler.
+		*/
+		if ((state & CANVAS) != 0) {
+			switch (keyval) {
+				case GDK.GDK_Return:
+				case GDK.GDK_KP_Enter:
+					return true;
+			}
+		}
+	}
+
+	return handled;
+}
+
 @Override
 long gtk_key_press_event (long widget, long event) {
 	long result = super.gtk_key_press_event (widget, event);
@@ -903,11 +938,7 @@ long gtk_key_press_event (long widget, long event) {
 	*/
 	if ((state & CANVAS) != 0 && socketHandle == 0) {
 		int [] eventKeyval = new int [1];
-		if (GTK.GTK4) {
-			eventKeyval[0] = GDK.gdk_key_event_get_keyval(event);
-		} else {
-			GDK.gdk_event_get_keyval(event, eventKeyval);
-		}
+		GDK.gdk_event_get_keyval(event, eventKeyval);
 
 		switch (eventKeyval[0]) {
 			case GDK.GDK_Return:
@@ -944,15 +975,6 @@ long gtk_map (long widget) {
 @Override
 long gtk_realize (long widget) {
 	long result = super.gtk_realize (widget);
-	if ((style & SWT.NO_BACKGROUND) != 0) {
-		// No gdk_surface_set_background_pattern() on GTK4.
-		if (GTK.GTK_VERSION < OS.VERSION(3, 22, 0)) {
-			long window = gtk_widget_get_window (paintHandle ());
-			if (window != 0) {
-				GDK.gdk_window_set_background_pattern(window, 0);
-			}
-		}
-	}
 	if (socketHandle != 0) {
 		embeddedHandle = GTK.gtk_socket_get_id (socketHandle);
 	}
@@ -1375,11 +1397,7 @@ void moveChildren(int oldWidth) {
 		gtk_widget_get_preferred_size (topHandle, requisition);
 		allocation.x = x;
 		allocation.y = y;
-		if (GTK.GTK4) {
-			GTK.gtk_widget_size_allocate (topHandle, allocation, -1);
-		} else {
-			GTK.gtk_widget_size_allocate (topHandle, allocation);
-		}
+		gtk_widget_size_allocate(topHandle, allocation, -1);
 		Control control = child.findBackgroundControl ();
 		if (control != null && control.backgroundImage != null) {
 			if (child.isVisible ()) child.redrawWidget (0, 0, 0, 0, true, true, true);
@@ -1533,14 +1551,19 @@ void register () {
 
 @Override
 void releaseChildren (boolean destroy) {
-	Control [] children = _getChildren ();
-	for (int i=0; i<children.length; i++) {
-		Control child = children [i];
-		if (child != null && !child.isDisposed ()) {
-			child.release (false);
+	try (ExceptionStash exceptions = new ExceptionStash ()) {
+		for (Control child : _getChildren ()) {
+			if (child == null || child.isDisposed ())
+				continue;
+
+			try {
+				child.release (false);
+			} catch (Error | RuntimeException ex) {
+				exceptions.stash (ex);
+			}
 		}
+		super.releaseChildren (destroy);
 	}
-	super.releaseChildren (destroy);
 }
 
 @Override
@@ -1861,4 +1884,10 @@ void updateLayout (boolean all) {
 		}
 	}
 }
+
+@Override
+public String toString() {
+	return super.toString() + " [layout=" + layout + "]";
+}
+
 }

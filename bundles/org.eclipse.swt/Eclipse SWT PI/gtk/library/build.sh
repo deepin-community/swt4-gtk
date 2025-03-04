@@ -81,10 +81,6 @@ if [ "${OS}" = "" ]; then
 	OS=`uname -s`
 fi
 case $OS in
-	"Windows_NT")
-		SWT_OS=win32
-		MAKEFILE=make_win32.mak
-		;;
 	*)
 		SWT_OS=`uname -s | tr -s '[:upper:]' '[:lower:]'`
 		MAKEFILE=make_linux.mak
@@ -118,17 +114,6 @@ case $SWT_OS.$SWT_ARCH in
 		if [ "${CC}" = "" ]; then
 			export CC=gcc
 		fi
-		if [ "${JAVA_HOME}" = "" ]; then
-			# Cross-platform method of finding JAVA_HOME.
-			# Tested on Fedora 24 and Ubuntu 16
-			DYNAMIC_JAVA_HOME=`readlink -f /usr/bin/java | sed "s:jre/::" | sed "s:bin/java::"`
-			if [ -e "${DYNAMIC_JAVA_HOME}include/jni.h" ]; then
-				func_echo_plus "JAVA_HOME not set, but jni.h found, dynamically configured to $DYNAMIC_JAVA_HOME"
-				export JAVA_HOME="$DYNAMIC_JAVA_HOME"
-			else
-				func_echo_error "JAVA_HOME not set and jni.h could not be located. You might get a compile error about include 'jni.h'. You should install 'java-*-openjdk-devel' package or if you have it installed already, find jni.h and  set JAVA_HOME manually to base of 'include' folder"
-			fi
-		fi
 		if [ "${PKG_CONFIG_PATH}" = "" ]; then
 			export PKG_CONFIG_PATH="/usr/lib64/pkgconfig"
 		fi
@@ -137,8 +122,13 @@ case $SWT_OS.$SWT_ARCH in
 		if [ "${CC}" = "" ]; then
 			export CC=gcc
 		fi
-		if [ "${JAVA_HOME}" = "" ]; then
-			export JAVA_HOME=`readlink -f /usr/bin/java | sed "s:jre/bin/java::"`
+		if [ "${PKG_CONFIG_PATH}" = "" ]; then
+			export PKG_CONFIG_PATH="/usr/lib64/pkgconfig/"
+		fi
+		;;
+	"linux.loongarch64")
+		if [ "${CC}" = "" ]; then
+			export CC=gcc
 		fi
 		if [ "${PKG_CONFIG_PATH}" = "" ]; then
 			export PKG_CONFIG_PATH="/usr/lib64/pkgconfig/"
@@ -148,7 +138,7 @@ esac
 
 
 # For 64-bit CPUs, we have a switch
-if [ ${MODEL} = 'x86_64' -o ${MODEL} = 'ppc64le' -o ${MODEL} = 'aarch64' ]; then
+if [ ${MODEL} = 'x86_64' -o ${MODEL} = 'ppc64le' -o ${MODEL} = 'aarch64' -o ${MODEL} = 'loongarch64' ]; then
 	SWT_PTR_CFLAGS=-DJNI64
 	if [ -d /lib64 ]; then
 		XLIB64=-L/usr/X11R6/lib64
@@ -170,22 +160,28 @@ else
 	func_echo_error "Cairo not found: Advanced graphics support using cairo will not be compiled."
 fi
 
+if [ -z ${SWT_JAVA_HOME} ] || [ ! -f "${SWT_JAVA_HOME}/include/jni.h" ]; then
+	func_echo_error "SWT_JAVA_HOME not set and jni.h could not be located. You might get a compile error about include 'jni.h'. You should install 'java-*-openjdk-devel' package or if you have it installed already, find jni.h and  set SWT_JAVA_HOME manually to base of 'include' folder"
+else
+	func_echo_plus "jni.h found"
+fi
+
 # Find AWT if available
 if [ ${SWT_OS} = 'win32' ]; then
 	AWT_LIB_EXPR="jawt.dll"
 else
-	AWT_LIB_EXPR="libjawt.*"
+	AWT_LIB_EXPR="libjawt.so"
 fi
 
 if [ -z "${AWT_LIB_PATH}" ]; then
-	if [ -f ${JAVA_HOME}/jre/lib/${AWT_ARCH}/${AWT_LIB_EXPR} ]; then
-		AWT_LIB_PATH=${JAVA_HOME}/jre/lib/${AWT_ARCH}
+	if [ -f ${SWT_JAVA_HOME}/jre/lib/${AWT_ARCH}/${AWT_LIB_EXPR} ]; then
+		AWT_LIB_PATH=${SWT_JAVA_HOME}/jre/lib/${AWT_ARCH}
 		export AWT_LIB_PATH
-	elif [ -f ${JAVA_HOME}/lib/${AWT_LIB_EXPR} ]; then
-		AWT_LIB_PATH=${JAVA_HOME}/lib
+	elif [ -f ${SWT_JAVA_HOME}/lib/${AWT_LIB_EXPR} ]; then
+		AWT_LIB_PATH=${SWT_JAVA_HOME}/lib
 		export AWT_LIB_PATH
 	else
-		AWT_LIB_PATH=${JAVA_HOME}/jre/bin
+		AWT_LIB_PATH=${SWT_JAVA_HOME}/jre/bin
 		export AWT_LIB_PATH
 	fi
 fi
@@ -215,7 +211,7 @@ for i in "$@"; do  # loop over all input paramaters
 		func_echo_error "ERROR: 'install' was passed in as paramater, but OUTPUT_DIR :"
 		func_echo_error "(${OUTPUT_DIR}) "
 		func_echo_error "is not a valid directory."
-		func_echo_error "1) Maybe you forgot to checkout SWT binaries? See: https://git.eclipse.org/c/platform/eclipse.platform.swt.binaries.git/"
+		func_echo_error "1) Maybe you forgot to checkout SWT binaries? See: https://github.com/eclipse-platform/eclipse.platform.swt.binaries/"
 		func_echo_error "2) SWT and SWT binary git repos have to be in the same folder, (usually ~/git/...). Maybe you put them in different folders?"
 		func_echo_error "Exit with failure"
 		exit 1
@@ -254,14 +250,6 @@ func_echo_plus "Building SWT/GTK+ for Architectures: $SWT_OS $SWT_ARCH"
 func_build_gtk4 () {
 	export GTK_VERSION=4.0
 
-	# Dictate Webkit2 Extension only if pkg-config flags exist
-	pkg-config --exists webkit2gtk-web-extension-4.0
-	if [ $? = 0 ]; then
-		export BUILD_WEBKIT2EXTENSION="yes";
-	else
-		func_echo_error "Warning: Cannot compile Webkit2 Extension because 'pkg-config --exists webkit2gtk-web-extension-4.0' check failed. Please install webkitgtk4-devel.ARCH on your system."
-	fi
-
 	func_echo_plus "Building GTK4 bindings:"
 	${MAKE_TYPE} -f $MAKEFILE all $MAKE_CAIRO $MAKE_AWT "${@}"
 	RETURN_VALUE=$?   #make can return 1 or 2 if it fails. Thus need to cache it in case it's used programmatically somewhere.
@@ -273,33 +261,8 @@ func_build_gtk4 () {
 	fi
 }
 
-func_build_chromium () {
-	func_echo_plus "Building Chromium bindings:"
-	if [ -d "chromium_subp/cef_linux" ]; then
-		export CHROMIUM_HEADERS=./chromium_subp/cef_linux
-	else
-		export CHROMIUM_HEADERS=$CHROMIUM_OUTPUT_DIR/../../../../eclipse.platform.swt/bundles/org.eclipse.swt.browser.chromium/common/rust-library/chromium_subp/cef_linux
-	fi
-	${MAKE_TYPE} -f $MAKEFILE "${@}"
-	RETURN_VALUE=$?   #make can return 1 or 2 if it fails. Thus need to cache it in case it's used programmatically somewhere.
-	if [ "$RETURN_VALUE" -eq 0 ]; then
-		func_echo_plus "Chromium Build succeeded"
-	else
-		func_echo_error "Chromium Build failed, aborting further actions.."
-		exit $RETURN_VALUE
-	fi
-}
-
 func_build_gtk3 () {
 	export GTK_VERSION=3.0
-
-	# Dictate Webkit2 Extension only if pkg-config flags exist
-	pkg-config --exists webkit2gtk-web-extension-4.0
-	if [ $? = 0 ]; then
-		export BUILD_WEBKIT2EXTENSION="yes";
-	else
-		func_echo_error "Warning: Cannot compile Webkit2 Extension because 'pkg-config --exists webkit2gtk-web-extension-4.0' check failed. Please install webkitgtk4-devel.ARCH on your system."
-	fi
 
 	func_echo_plus "Building GTK3 bindings:"
 	${MAKE_TYPE} -f $MAKEFILE all $MAKE_CAIRO $MAKE_AWT "${@}"
@@ -325,8 +288,6 @@ elif [ "$1" = "-gtk4" ]; then
 elif [ "$1" = "-gtk3" ]; then
 	shift
 	func_build_gtk3 "$@"
-elif [ "$1" = "chromium_install" ] || [ "$1" = "chromium_cargo" ]; then
-	func_build_chromium "$@"
 elif [ "${GTK_VERSION}" = "4.0" ]; then
 	func_build_gtk4 "$@"
 elif [ "${GTK_VERSION}" = "3.0" -o "${GTK_VERSION}" = "" ]; then

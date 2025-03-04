@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2014 IBM Corporation and others.
+ * Copyright (c) 2000, 2021 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -48,7 +48,8 @@ import org.eclipse.swt.internal.win32.*;
  * @noextend This class is not intended to be subclassed by clients.
  */
 public class ToolBar extends Composite {
-	int lastFocusId, lastArrowId, lastHotId;
+	int lastFocusId, lastArrowId, lastHotId, _width, _height, _count = -1, _wHint = -1, _hHint = -1;
+	long currentToolItemToolTip;
 	ToolItem [] items;
 	ToolItem [] tabItemList;
 	boolean ignoreResize, ignoreMouse;
@@ -191,12 +192,33 @@ protected void checkSubclass () {
 	if (!isValidSubclass ()) error (SWT.ERROR_INVALID_SUBCLASS);
 }
 
+@Override
+public void layout (boolean changed) {
+	checkWidget ();
+	clearSizeCache(changed);
+	super.layout(changed);
+}
+
+void clearSizeCache(boolean changed) {
+	// If changed, discard the cached layout information
+	if (changed) {
+		_count = _wHint = _hHint = -1;
+	}
+}
+
 @Override Point computeSizeInPixels (int wHint, int hHint, boolean changed) {
+	int count = (int)OS.SendMessage (handle, OS.TB_BUTTONCOUNT, 0, 0);
+	if (count == this._count && wHint == this._wHint && hHint == this._hHint) {
+		// Return already cached values calculated previously
+		return new Point (_width, _height);
+	}
+	this._count = count;
+	this._wHint = wHint;
+	this._hHint = hHint;
 	int width = 0, height = 0;
 	if ((style & SWT.VERTICAL) != 0) {
 		RECT rect = new RECT ();
 		TBBUTTON lpButton = new TBBUTTON ();
-		int count = (int)OS.SendMessage (handle, OS.TB_BUTTONCOUNT, 0, 0);
 		for (int i=0; i<count; i++) {
 			OS.SendMessage (handle, OS.TB_GETITEMRECT, i, rect);
 			height = Math.max (height, rect.bottom);
@@ -224,7 +246,6 @@ protected void checkSubclass () {
 		if (redraw) OS.UpdateWindow (handle);
 		int flags = OS.SWP_NOACTIVATE | OS.SWP_NOMOVE | OS.SWP_NOREDRAW | OS.SWP_NOZORDER;
 		OS.SetWindowPos (handle, 0, 0, 0, newWidth, newHeight, flags);
-		int count = (int)OS.SendMessage (handle, OS.TB_BUTTONCOUNT, 0, 0);
 		if (count != 0) {
 			RECT rect = new RECT ();
 			OS.SendMessage (handle, OS.TB_GETITEMRECT, count - 1, rect);
@@ -249,6 +270,12 @@ protected void checkSubclass () {
 	if (hHint != SWT.DEFAULT) height = hHint;
 	Rectangle trim = computeTrimInPixels (0, 0, width, height);
 	width = trim.width;  height = trim.height;
+	/*
+	 * Cache this size information for possible re-use as this method gets called
+	 * too many times, for more details see performance Bug 574641
+	 */
+	this._width = width;
+	this._height = height;
 	return new Point (width, height);
 }
 
@@ -663,6 +690,7 @@ public int indexOf (ToolItem item) {
 }
 
 void layoutItems () {
+	clearSizeCache(true);
 	/*
 	* Feature in Windows.  When a tool bar has the style
 	* TBSTYLE_LIST and has a drop down item, Window leaves
@@ -704,6 +732,54 @@ void layoutItems () {
 				long hFont = OS.SendMessage (handle, OS.WM_GETFONT, 0, 0);
 				OS.SendMessage (handle, OS.WM_SETFONT, hFont, 0);
 				setDropDownItems (true);
+			}
+		}
+	}
+
+	/*
+	 * Feature in Windows. When a tool bar is not flagged TBSTYLE_LIST already (SWT.RIGHT)
+	 * and contains both text and images, but not text + image in a single item,
+	 * Window leaves too much padding around the button.
+	 * This affects every button in the tool bar and makes the preferred height too big.
+	 * The fix is to set the TBSTYLE_LIST, so that Windows can condense the unused space.
+	 */
+	if (OS.IsAppThemed()) {
+		if ((style & SWT.RIGHT) == 0 && (style & SWT.HORIZONTAL) != 0) {
+			boolean hasText = false, hasImage = false, hasTextAndImageInSingleItem = false;
+			for (ToolItem item : items) {
+				if (item != null) {
+					boolean itemHasText = false, itemHasImage = false;
+					itemHasText = item.text.length() != 0;
+					itemHasImage = item.image != null;
+					if (!hasText) {
+						hasText = itemHasText;
+					}
+					if (!hasImage) {
+						hasImage = itemHasImage;
+					}
+					if (itemHasText && itemHasImage) {
+						hasTextAndImageInSingleItem = true;
+						break;
+					}
+				}
+			}
+			int oldBits = OS.GetWindowLong(handle, OS.GWL_STYLE), newBits = oldBits;
+			if (hasText && hasImage && !hasTextAndImageInSingleItem) {
+				newBits |= OS.TBSTYLE_LIST;
+			} else {
+				newBits &= ~OS.TBSTYLE_LIST;
+			}
+			if (newBits != oldBits) {
+				setDropDownItems(false);
+				OS.SetWindowLong(handle, OS.GWL_STYLE, newBits);
+				/*
+				 * Feature in Windows. For some reason, when the style is changed to
+				 * TBSTYLE_LIST, Windows does not lay out the tool items. The fix is to use
+				 * WM_SETFONT to force the tool bar to redraw and lay out.
+				 */
+				long hFont = OS.SendMessage(handle, OS.WM_GETFONT, 0, 0);
+				OS.SendMessage(handle, OS.WM_SETFONT, hFont, 0);
+				setDropDownItems(true);
 			}
 		}
 	}
@@ -1147,6 +1223,10 @@ String toolTipText (NMTTDISPINFO hdr) {
 	int index = (int)hdr.idFrom;
 	long hwndToolTip = OS.SendMessage (handle, OS.TB_GETTOOLTIPS, 0, 0);
 	if (hwndToolTip == hdr.hwndFrom) {
+		if (currentToolItemToolTip != hwndToolTip) {
+			maybeEnableDarkSystemTheme(hdr.hwndFrom);
+			currentToolItemToolTip = hdr.hwndFrom;
+		}
 		/*
 		* Bug in Windows. For some reason the reading order
 		* in NMTTDISPINFO is sometimes set incorrectly.  The
@@ -1533,17 +1613,28 @@ LRESULT wmCommandChild (long wParam, long lParam) {
 	return child.wmCommandChild (wParam, lParam);
 }
 
-private boolean customDrawing() {
-	return hasCustomBackground() || (hasCustomForeground() && OS.IsWindowEnabled(handle));
+int getForegroundPixel (ToolItem item) {
+	if (item != null && item.foreground != -1) {
+		return item.foreground;
+	}
+	return getForegroundPixel ();
+}
+
+int getBackgroundPixel (ToolItem item) {
+	if (item != null && item.background != -1) {
+		return item.background;
+	}
+	return getBackgroundPixel ();
 }
 
 @Override
 LRESULT wmNotifyChild (NMHDR hdr, long wParam, long lParam) {
+	ToolItem child;
 	switch (hdr.code) {
 		case OS.TBN_DROPDOWN:
 			NMTOOLBAR lpnmtb = new NMTOOLBAR ();
 			OS.MoveMemory (lpnmtb, lParam, NMTOOLBAR.sizeof);
-			ToolItem child = items [lpnmtb.iItem];
+			child = items [lpnmtb.iItem];
 			if (child != null) {
 				Event event = new Event ();
 				event.detail = SWT.ARROW;
@@ -1563,6 +1654,7 @@ LRESULT wmNotifyChild (NMHDR hdr, long wParam, long lParam) {
 			*/
 			NMTBCUSTOMDRAW nmcd = new NMTBCUSTOMDRAW ();
 			OS.MoveMemory (nmcd, lParam, NMTBCUSTOMDRAW.sizeof);
+			child = items [(int) nmcd.dwItemSpec];
 //			if (drawCount != 0 || !OS.IsWindowVisible (handle)) {
 //				if (OS.WindowFromDC (nmcd.hdc) == handle) break;
 //			}
@@ -1584,16 +1676,23 @@ LRESULT wmNotifyChild (NMHDR hdr, long wParam, long lParam) {
 					return new LRESULT (OS.CDRF_SKIPDEFAULT);
 				}
 				case OS.CDDS_PREPAINT: {
-					return new LRESULT (customDrawing() ? OS.CDRF_NOTIFYITEMDRAW : OS.CDRF_DODEFAULT);
+					long result = OS.CDRF_DODEFAULT;
+					if (background != -1 || (foreground != -1 && OS.IsWindowEnabled (handle)) || (state & CUSTOM_DRAW_ITEM) != 0) {
+						result = OS.CDRF_NOTIFYITEMDRAW;
+					}
+					return new LRESULT (result);
 				}
 				case OS.CDDS_ITEMPREPAINT: {
-					if (customDrawing()) {
-						nmcd.clrBtnFace = getBackgroundPixel();
-						nmcd.clrText = getForegroundPixel();
-						OS.MoveMemory(lParam, nmcd, NMTBCUSTOMDRAW.sizeof);
-						return new LRESULT(OS.TBCDRF_USECDCOLORS);
+					long result = OS.TBCDRF_USECDCOLORS;
+					nmcd.clrBtnFace = getBackgroundPixel (child);
+					nmcd.clrText = getForegroundPixel (child);
+					OS.MoveMemory (lParam, nmcd, NMTBCUSTOMDRAW.sizeof);
+					if (child != null && child.background != -1) {
+						RECT rect = new RECT (nmcd.left, nmcd.top, nmcd.right, nmcd.bottom);
+						OS.SetDCBrushColor (nmcd.hdc, child.background);
+						OS.FillRect (nmcd.hdc, rect, OS.GetStockObject (OS.DC_BRUSH));
 					}
-					return new LRESULT (OS.CDRF_DODEFAULT);
+					return new LRESULT (result);
 				}
 			}
 			break;

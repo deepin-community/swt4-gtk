@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corporation and others.
+ * Copyright (c) 2000, 2022 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -124,16 +124,6 @@ public final class Image extends Resource implements Drawable {
 	 * The GC the image is currently selected in.
 	 */
 	GC memGC;
-
-	/**
-	 * The alpha data of the image.
-	 */
-	byte[] alphaData;
-
-	/**
-	 * The global alpha value to be used for every pixel.
-	 */
-	int alpha = -1;
 
 	/**
 	 * The width of the image.
@@ -276,11 +266,6 @@ public Image(Device device, Image srcImage, int flag) {
 	this.currentDeviceZoom = srcImage.currentDeviceZoom;
 
 	if (flag != SWT.IMAGE_DISABLE) transparentPixel = srcImage.transparentPixel;
-	alpha = srcImage.alpha;
-	if (srcImage.alphaData != null) {
-		alphaData = new byte[srcImage.alphaData.length];
-		System.arraycopy(srcImage.alphaData, 0, alphaData, 0, alphaData.length);
-	}
 
 	long imageSurface = srcImage.surface;
 	int width = this.width = srcImage.width;
@@ -289,7 +274,7 @@ public Image(Device device, Image srcImage, int flag) {
 	boolean hasAlpha = format == Cairo.CAIRO_FORMAT_ARGB32;
 	surface = Cairo.cairo_image_surface_create(format, width, height);
 	if (surface == 0) SWT.error(SWT.ERROR_NO_HANDLES);
-	if (DPIUtil.useCairoAutoScale()) {
+	if (DPIUtil.getDeviceZoom() != currentDeviceZoom && DPIUtil.useCairoAutoScale()) {
 		double scaleFactor = DPIUtil.getDeviceZoom() / 100f;
 		Cairo.cairo_surface_set_device_scale(surface, scaleFactor, scaleFactor);
 	}
@@ -310,16 +295,6 @@ public Image(Device device, Image srcImage, int flag) {
 		}
 		switch (flag) {
 			case SWT.IMAGE_DISABLE: {
-				Color zeroColor = device.getSystemColor(SWT.COLOR_WIDGET_NORMAL_SHADOW);
-				RGB zeroRGB = zeroColor.getRGB();
-				int zeroRed = zeroRGB.red;
-				int zeroGreen = zeroRGB.green;
-				int zeroBlue = zeroRGB.blue;
-				Color oneColor = device.getSystemColor(SWT.COLOR_WIDGET_BACKGROUND);
-				RGB oneRGB = oneColor.getRGB();
-				int oneRed = oneRGB.red;
-				int oneGreen = oneRGB.green;
-				int oneBlue = oneRGB.blue;
 				byte[] line = new byte[stride];
 				for (int y=0; y<height; y++) {
 					C.memmove(line, data + (y * stride), stride);
@@ -328,33 +303,10 @@ public Image(Device device, Image srcImage, int flag) {
 						int r = line[offset + or] & 0xFF;
 						int g = line[offset + og] & 0xFF;
 						int b = line[offset + ob] & 0xFF;
-						if (hasAlpha && a != 0) {
-							r = ((r * 0xFF) + a / 2) / a;
-							g = ((g * 0xFF) + a / 2) / a;
-							b = ((b * 0xFF) + a / 2) / a;
-						}
-						int intensity = r * r + g * g + b * b;
-						if (intensity < 98304) {
-							r = zeroRed;
-							g = zeroGreen;
-							b = zeroBlue;
-						} else {
-							r = oneRed;
-							g = oneGreen;
-							b = oneBlue;
-						}
-						if (hasAlpha) {
-							/* pre-multiplied alpha */
-							r = (r * a) + 128;
-							r = (r + (r >> 8)) >> 8;
-							g = (g * a) + 128;
-							g = (g + (g >> 8)) >> 8;
-							b = (b * a) + 128;
-							b = (b + (b >> 8)) >> 8;
-						}
-						line[offset + or] = (byte)r;
-						line[offset + og] = (byte)g;
-						line[offset + ob] = (byte)b;
+						line[offset + oa] = (byte) Math.round((double) a * 0.5);
+						line[offset + or] = (byte) Math.round((double) r * 0.5);
+						line[offset + og] = (byte) Math.round((double) g * 0.5);
+						line[offset + ob] = (byte) Math.round((double) b * 0.5);
 					}
 					C.memmove(data + (y * stride), line, stride);
 				}
@@ -827,8 +779,8 @@ void createFromPixbuf(int type, long pixbuf) {
 
 	// Scale dimensions of Image object to 100% scale factor
 	double scaleFactor = DPIUtil.getDeviceZoom() / 100f;
-	this.width = pixbufWidth / (int) scaleFactor;
-	this.height = pixbufHeight / (int) scaleFactor;
+	this.width = (int) Math.round(pixbufWidth / scaleFactor);
+	this.height = (int) Math.round(pixbufHeight / scaleFactor);
 
 	int stride = GDK.gdk_pixbuf_get_rowstride(pixbuf);
 	long pixels = GDK.gdk_pixbuf_get_pixels(pixbuf);
@@ -850,8 +802,7 @@ void createFromPixbuf(int type, long pixbuf) {
 	}
 	byte[] line = new byte[stride];
 	if (hasAlpha) {
-		alphaData = new byte[pixbufWidth * pixbufHeight];
-		for (int y = 0, alphaOffset = 0; y < pixbufHeight; y++) {
+		for (int y = 0; y < pixbufHeight; y++) {
 			C.memmove(line, pixels + (y * stride), stride);
 			for (int x = 0, offset = 0; x < pixbufWidth; x++, offset += 4) {
 				int a = line[offset + 3] & 0xFF;
@@ -865,7 +816,6 @@ void createFromPixbuf(int type, long pixbuf) {
 				line[offset + or] = (byte)r;
 				line[offset + og] = (byte)g;
 				line[offset + ob] = (byte)b;
-				alphaData[alphaOffset++] = (byte)a;
 			}
 			C.memmove(data + (y * stride), line, stride);
 		}
@@ -987,7 +937,7 @@ public boolean equals (Object object) {
  * color of the widget to paint the transparent pixels of the image.
  * Use this method to check which color will be used in these cases
  * in place of transparency. This value may be set with setBackground().
- * <p>
+ * </p>
  *
  * @return the background color of the image, or null if there is no transparency in the image
  *
@@ -1309,8 +1259,8 @@ void init(ImageData image) {
 
 	// Scale dimensions of Image object to 100% scale factor
 	double scaleFactor = DPIUtil.getDeviceZoom() / 100f;
-	this.width = imageDataWidth / (int) scaleFactor;
-	this.height = imageDataHeight / (int) scaleFactor;
+	this.width = (int) Math.round(imageDataWidth / scaleFactor);
+	this.height = (int) Math.round(imageDataHeight / scaleFactor);
 
 	boolean hasAlpha = image.transparentPixel != -1 || image.alpha != -1 || image.maskData != null || image.alphaData != null;
 	int format = hasAlpha ? Cairo.CAIRO_FORMAT_ARGB32 : Cairo.CAIRO_FORMAT_RGB24;
@@ -1341,10 +1291,9 @@ void init(ImageData image) {
 	if (!palette.isDirect || image.depth != destDepth || stride != image.bytesPerLine || palette.redMask != redMask || palette.greenMask != greenMask || palette.blueMask != blueMask || destOrder != image.getByteOrder()) {
 		buffer = new byte[stride * imageDataHeight];
 		if (palette.isDirect) {
-			ImageData.blit(ImageData.BLIT_SRC,
-				image.data, image.depth, image.bytesPerLine, image.getByteOrder(), 0, 0, imageDataWidth, imageDataHeight, palette.redMask, palette.greenMask, palette.blueMask,
-				ImageData.ALPHA_OPAQUE, null, 0, 0, 0,
-				buffer, destDepth, stride, destOrder, 0, 0, imageDataWidth, imageDataHeight, redMask, greenMask, blueMask,
+			ImageData.blit(
+				image.data, image.depth, image.bytesPerLine, image.getByteOrder(), imageDataWidth, imageDataHeight, palette.redMask, palette.greenMask, palette.blueMask,
+				buffer, destDepth, stride, destOrder, imageDataWidth, imageDataHeight, redMask, greenMask, blueMask,
 				false, false);
 		} else {
 			RGB[] rgbs = palette.getRGBs();
@@ -1359,11 +1308,10 @@ void init(ImageData image) {
 				srcGreens[i] = (byte)rgb.green;
 				srcBlues[i] = (byte)rgb.blue;
 			}
-			ImageData.blit(ImageData.BLIT_SRC,
-				image.data, image.depth, image.bytesPerLine, image.getByteOrder(), 0, 0, imageDataWidth, imageDataHeight, srcReds, srcGreens, srcBlues,
-				ImageData.ALPHA_OPAQUE, null, 0, 0, 0,
-				buffer, destDepth, stride, destOrder, 0, 0, imageDataWidth, imageDataHeight, redMask, greenMask, blueMask,
-				false, false);
+			ImageData.blit(
+				imageDataWidth, imageDataHeight,
+				image.data, image.depth, image.bytesPerLine, image.getByteOrder(), srcReds, srcGreens, srcBlues,
+				buffer, destDepth, stride, destOrder, redMask, greenMask, blueMask);
 		}
 	}
 	boolean isIcon = image.getTransparencyType() == SWT.TRANSPARENCY_MASK;
@@ -1400,15 +1348,10 @@ void init(ImageData image) {
 			}
 		}
 	} else {
-		this.alpha = image.alpha;
-		if (image.alpha == -1 && image.alphaData != null) {
-			this.alphaData = new byte[image.alphaData.length];
-			System.arraycopy(image.alphaData, 0, this.alphaData, 0, alphaData.length);
-		}
-		if (this.alpha != -1) {
+		if (image.alpha != -1) {
+			int alpha = image.alpha;
 			for (int y = 0, offset = 0; y < imageDataHeight; y++) {
 				for (int x=0; x<imageDataWidth; x++, offset += 4) {
-					int alpha = this.alpha;
 					/* pre-multiplied alpha */
 					int r = ((buffer[offset + or] & 0xFF) * alpha) + 128;
 					r = (r + (r >> 8)) >> 8;
@@ -1422,7 +1365,8 @@ void init(ImageData image) {
 					buffer[offset + ob] = (byte)b;
 				}
 			}
-		} else if (this.alphaData != null) {
+		} else if (image.alphaData != null) {
+			byte[] alphaData = image.alphaData;
 			for (int y = 0, offset = 0; y < imageDataHeight; y++) {
 				for (int x=0; x<imageDataWidth; x++, offset += 4) {
 					int alpha = alphaData [y*imageDataWidth+x] & 0xFF;

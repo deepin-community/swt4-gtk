@@ -40,6 +40,14 @@ public void generateIncludes() {
 	output("#include \"");
 	output(outputName);
 	outputln("_stats.h\"");
+	
+	/* 
+	 * Note: Only applies to Linux versions of SWT.
+	 * Include common structs shared between multiple GTK versions.
+	 * Reference Bug 570533, the initial work for separation between 
+	 * functions in different GTK versions.
+	 */
+	if (outputName.equals("gtk3") || outputName.equals("gtk4")) outputln("#include \"os_structs.h\"");
 	outputln();
 }
 
@@ -68,12 +76,13 @@ public void generate(JNIClass clazz) {
 	if (i == methods.length) return;
 	sort(methods);
 	generateNativeMacro(clazz);
+	generateWarningSettings();
 	generateExcludes(methods);
 	generate(methods);
 }
 
 public void generate(JNIMethod[] methods) {
-	sort(methods);	
+	sort(methods);
 	for (JNIMethod method : methods) {
 		if ((method.getModifiers() & Modifier.NATIVE) == 0) continue;
 		generate(method);
@@ -114,7 +123,7 @@ void generateCallback(JNIMethod method, String function) {
 		first = false;
 	}
 	outputln(") {");
-	
+
 	output("\t");
 	if (isStruct(flags[0]) || isFloatingPoint(types[0])) {
 		output(types[0]);
@@ -160,7 +169,7 @@ void generateCallback(JNIMethod method, String function) {
 		outputln("\treturn rc;");
 	}
 	outputln("}");
-	
+
 	output("static jlong ");
 	output(method.getName());
 	outputln("(jlong func) {");
@@ -175,7 +184,7 @@ void generateCallback(JNIMethod method, String function) {
 
 public void generate(JNIMethod method) {
 	if (method.getFlag(FLAG_NO_GEN)) return;
-	JNIType returnType = method.getReturnType();	
+	JNIType returnType = method.getReturnType();
 	if (!(returnType.isType("void") || returnType.isPrimitive() || isSystemClass(returnType) || returnType.isType("java.lang.String"))) {
 		output("Warning: bad return type. :");
 		outputln(method.toString());
@@ -238,6 +247,14 @@ void generateNativeMacro(JNIClass clazz) {
 	output("_NATIVE(func) Java_");
 	output(toC(clazz.getName()));
 	outputln("_##func");
+	outputln("#endif");
+	outputln();
+}
+
+void generateWarningSettings() {
+	outputln("#ifdef _WIN32");
+	outputln("  /* Many methods don't use their 'env' and 'that' arguments */");
+	outputln("  #pragma warning (disable: 4100)");
 	outputln("#endif");
 	outputln();
 }

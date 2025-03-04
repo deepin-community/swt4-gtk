@@ -3,7 +3,6 @@ Section: java
 Priority: optional
 Maintainer: Debian Java Maintainers <pkg-java-maintainers@lists.alioth.debian.org>
 Uploaders:
- Adrian Perez <blackxored@debian.org>,
  أحمد المحمودي (Ahmed El-Mahmoudy) <aelmahmoudy@sabily.org>,
  Jakub Adam <jakub.adam@ktknet.cz>
 Build-Depends:
@@ -16,7 +15,7 @@ Build-Depends:
  libgtk-3-dev,
  libxt-dev,
  maven-repo-helper
-Standards-Version: 4.5.1
+Standards-Version: 4.7.0
 Vcs-Git: https://salsa.debian.org/java-team/swt-gtk.git
 Vcs-Browser: https://salsa.debian.org/java-team/swt-gtk
 Homepage: http://www.eclipse.org/swt/
@@ -63,7 +62,7 @@ Description: Standard Widget Toolkit for GTK+ GLX JNI library
 
 Package: libswt-webkit-gtk-4-jni
 Architecture: any
-Depends: libswt-gtk-4-jni (= ${binary:Version}), libwebkit2gtk-4.0-37, ${shlibs:Depends}, ${misc:Depends}
+Depends: libswt-gtk-4-jni (= ${binary:Version}), libwebkit2gtk-4.1-0, ${shlibs:Depends}, ${misc:Depends}
 Breaks: libswt-gtk-4-java (<< ${binary:Version}), libswt-gtk-4-java (>> ${binary:Version})
 Description: Standard Widget Toolkit for GTK+ WebKit JNI library
  The Standard Widget Toolkit (SWT) is a fast and rich Java GUI toolkit.

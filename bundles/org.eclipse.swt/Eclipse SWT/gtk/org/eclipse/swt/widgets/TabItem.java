@@ -179,7 +179,7 @@ Rectangle getBoundsInPixels () {
  * Returns the control that is used to fill the client area of
  * the tab folder when the user selects the tab item.  If no
  * control has been set, return <code>null</code>.
- * <p>
+ *
  * @return the control
  *
  * @exception SWTException <ul>
@@ -243,7 +243,7 @@ void hookEvents () {
 		GTK4.gtk_widget_add_controller(handle, motionController);
 		GTK.gtk_event_controller_set_propagation_phase(motionController, GTK.GTK_PHASE_TARGET);
 
-		long enterMotionAddress = display.enterMotionScrollCallback.getAddress();
+		long enterMotionAddress = display.enterMotionCallback.getAddress();
 		OS.g_signal_connect (motionController, OS.enter, enterMotionAddress, ENTER);
 	} else {
 		OS.g_signal_connect_closure_by_id (handle, display.signalIds [ENTER_NOTIFY_EVENT], 0, display.getClosure (ENTER_NOTIFY_EVENT), false);
@@ -287,7 +287,7 @@ void releaseParent () {
 /**
  * Sets the control that is used to fill the client area of
  * the tab folder when the user selects the tab item.
- * <p>
+ *
  * @param control the new control (or null)
  *
  * @exception IllegalArgumentException <ul>
@@ -505,11 +505,11 @@ public void setText (String string) {
  *    <li>ERROR_THREAD_INVALID_ACCESS - if not called from the thread that created the receiver</li>
  * </ul>
  */
-public void setToolTipText (String string) {
-	checkWidget ();
-	Shell shell = parent._getShell ();
-	shell.setToolTipText (handle, string);
+public void setToolTipText(String string) {
+	checkWidget();
+
 	toolTipText = string;
+	setToolTipText(handle, string);
 }
 
 @Override
