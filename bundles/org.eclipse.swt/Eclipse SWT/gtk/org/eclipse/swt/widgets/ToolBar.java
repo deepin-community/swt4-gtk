@@ -250,21 +250,6 @@ long enterExitHandle() {
 }
 
 @Override
-void fixChildren (Shell newShell, Shell oldShell, Decorations newDecorations, Decorations oldDecorations, Menu [] menus) {
-	super.fixChildren (newShell, oldShell, newDecorations, oldDecorations, menus);
-	ToolItem [] items = getItems ();
-	if (toolTipText == null) {
-		for (int i = 0; i < items.length; i++) {
-			ToolItem item = items [i];
-			if (item.toolTipText != null) {
-				item.setToolTipText(oldShell, null);
-				item.setToolTipText(newShell, item.toolTipText);
-			}
-		}
-	}
-}
-
-@Override
 boolean forceFocus (long focusHandle) {
 	int dir = GTK.GTK_DIR_TAB_FORWARD;
 	if ((style & SWT.MIRRORED) != 0) dir = GTK.GTK_DIR_TAB_BACKWARD;
@@ -648,7 +633,7 @@ int setBounds (int x, int y, int width, int height, boolean move, boolean resize
 @Override
 void setBackgroundGdkRGBA (long context, long handle, GdkRGBA rgba) {
 	// Form background string
-	String css = "toolbar {background-color: " + display.gtk_rgba_to_css_string(rgba) + "}";
+	String css = "toolbar {background-color: " + display.gtk_rgba_to_css_string(rgba) + ";}";
 
 	// Cache background color
 	this.cssBackground = css;
@@ -698,23 +683,12 @@ void setFontDescription (long font) {
 	relayout ();
 }
 
-void restoreBackground () {
-	/*
-	 * We need to restore the cached background color in order to prevent
-	 * setting the foreground color from overriding the background color
-	 * (or replacing it with black).
-	 */
-	long context = GTK.gtk_widget_get_style_context(handle);
-	String finalCss = display.gtk_css_create_css_color_string (this.cssBackground, this.cssForeground, SWT.BACKGROUND);
-	gtk_css_provider_load_from_css (context, finalCss);
-}
-
 @Override
 void setForegroundGdkRGBA (GdkRGBA rgba) {
 	super.setForegroundGdkRGBA (rgba);
 	ToolItem [] items = getItems ();
 	for (int i = 0; i < items.length; i++) {
-		items[i].setForegroundRGBA (rgba);
+		items[i].updateStyle ();
 	}
 }
 
@@ -744,14 +718,13 @@ void setOrientation (boolean create) {
 }
 
 @Override
-public void setToolTipText (String string) {
+public void setToolTipText(String string) {
 	checkWidget();
-	super.setToolTipText (string);
-	Shell shell = _getShell ();
-	ToolItem [] items = getItems ();
+	super.setToolTipText(string);
+	ToolItem[] items = getItems();
 	for (int i = 0; i < items.length; i++) {
-		String newString = string != null ? null : items [i].toolTipText;
-		shell.setToolTipText (items [i].handle, newString);
+		String newString = string != null ? null : items[i].toolTipText;
+		setToolTipText(items[i].handle, newString);
 	}
 }
 }

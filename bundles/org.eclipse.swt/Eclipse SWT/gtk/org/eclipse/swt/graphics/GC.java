@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2018 IBM Corporation and others.
+ * Copyright (c) 2000, 2022 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -857,8 +857,9 @@ void drawImage(Image srcImage, int srcX, int srcY, int srcWidth, int srcHeight, 
 	/* Refresh Image as per zoom level, if required. */
 	srcImage.refreshImageForZoom ();
 
-	int	imgWidth = srcImage.width;
-	int	imgHeight = srcImage.height;
+	ImageData srcImageData = srcImage.getImageData();
+	int imgWidth = srcImageData.width;
+	int imgHeight = srcImageData.height;
 	if (simple) {
 		srcWidth = destWidth = imgWidth;
 		srcHeight = destHeight = imgHeight;
@@ -2564,12 +2565,12 @@ public void getTransform(Transform transform) {
 		 * So we return whatever the client specified with setTransform.
 		 */
 		if (currentTransform != null) {
-			transform.setElements(currentTransform);
+			transform.handle = currentTransform.clone();
 		} else {
-			transform.identity();
+			transform.handle = new double[] { 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 };
 		}
 	} else {
-		transform.identity();
+		transform.setElements(1, 0, 0, 1, 0, 0);
 	}
 }
 
@@ -3796,10 +3797,9 @@ public void setTransform(Transform transform) {
 	}
 	// Apply user transform on top of the current transformation matrix (and remember it)
 	if (transform != null) {
-		currentTransform = new double[6];
-		transform.getElements(currentTransform);
+		currentTransform = transform.handle.clone();
 		double[] transformMatrix = identity();
-		Cairo.cairo_matrix_multiply(transformMatrix, currentTransform, transformMatrix);
+		Cairo.cairo_matrix_multiply(transformMatrix, transform.handle, transformMatrix);
 		Cairo.cairo_transform(cairo, transformMatrix);
 	}
 	data.state &= ~DRAW_OFFSET;

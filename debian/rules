@@ -28,7 +28,6 @@ endif
 
 override_dh_auto_build:
 	cd bundles/org.eclipse.swt && ant -f buildFragment.xml build.jars -Dswt.ws=gtk -Dplugindir=.
-	cp bundles/org.eclipse.swt/swt.jar swt-gtk-$(DEB_UPSTREAM_VERSION).jar
 
 	cp bundles/org.eclipse.swt/Eclipse\ SWT/common/library/*         bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/
 	cp bundles/org.eclipse.swt/Eclipse\ SWT\ AWT/gtk/library/*.c     bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/
@@ -37,7 +36,7 @@ override_dh_auto_build:
 	cp bundles/org.eclipse.swt/Eclipse\ SWT\ PI/common/library/*     bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/
 	cp bundles/org.eclipse.swt/Eclipse\ SWT\ WebKit/gtk/library/*    bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/
 
-	GTK_VERSION=3.0 dh_auto_build -- $(MAKE_ARGS) make_atk make_awt make_cairo make_glx make_swt make_webkit make_swtpi
+	SWT_JAVA_HOME=/usr/lib/jvm/default-java/ GTK_VERSION=3.0 dh_auto_build -- $(MAKE_ARGS) make_atk make_awt make_cairo make_glx make_swt make_webkit make_swtpi
 
 	cp bundles/org.eclipse.swt/Eclipse\ SWT\ PI/gtk/library/*.so .
 

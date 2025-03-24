@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2020 IBM Corporation and others.
+ * Copyright (c) 2000, 2023 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -57,6 +57,9 @@ public class Button extends Control {
 	Image image;
 	String text;
 	GdkRGBA background;
+
+	Image defaultDisableImage;
+	boolean enabled = true;
 
 	static final int INNER_BORDER = 1;
 	static final int DEFAULT_BORDER = 1;
@@ -229,7 +232,7 @@ Point computeSizeInPixels (int wHint, int hHint, boolean changed) {
 				GTK.gtk_widget_get_preferred_size(icon, minimum, null);
 				long context = GTK.gtk_widget_get_style_context(icon);
 				GtkBorder margin = new GtkBorder ();
-				GTK.gtk_style_context_get_margin(context, margin);
+				GTK4.gtk_style_context_get_margin(context, margin);
 				trimWidth += minimum.width + margin.right;
 			} else {
 				int[] indicatorSize = new int[1];
@@ -301,7 +304,7 @@ void createHandle (int index) {
 
 	switch (style & bits) {
 		case SWT.ARROW:
-			byte arrowType [] = GTK.GTK_NAMED_ICON_GO_UP;
+			byte[] arrowType  = GTK.GTK_NAMED_ICON_GO_UP;
 			if ((style & SWT.UP) != 0) arrowType = GTK.GTK_NAMED_ICON_GO_UP;
 			if ((style & SWT.DOWN) != 0) arrowType = GTK.GTK_NAMED_ICON_GO_DOWN;
 			if ((style & SWT.LEFT) != 0) arrowType = GTK.GTK_NAMED_ICON_GO_PREVIOUS;
@@ -405,11 +408,11 @@ void createHandle (int index) {
 
 		if ((style & SWT.WRAP) != 0) {
 			if (GTK.GTK4) {
-				GTK.gtk_label_set_wrap(labelHandle, true);
-				GTK.gtk_label_set_wrap_mode(labelHandle, OS.PANGO_WRAP_WORD_CHAR);
+				GTK4.gtk_label_set_wrap(labelHandle, true);
+				GTK4.gtk_label_set_wrap_mode(labelHandle, OS.PANGO_WRAP_WORD_CHAR);
 			} else {
-				GTK.gtk_label_set_line_wrap (labelHandle, true);
-				GTK.gtk_label_set_line_wrap_mode (labelHandle, OS.PANGO_WRAP_WORD_CHAR);
+				GTK3.gtk_label_set_line_wrap (labelHandle, true);
+				GTK3.gtk_label_set_line_wrap_mode (labelHandle, OS.PANGO_WRAP_WORD_CHAR);
 			}
 		}
 	}
@@ -612,7 +615,7 @@ long gtk_clicked (long widget) {
 				GTK4.gtk_check_button_set_inconsistent(handle, inconsistent);
 			} else {
 				boolean inconsistent = grayed && GTK.gtk_toggle_button_get_active(handle);
-				GTK.gtk_toggle_button_set_inconsistent(handle, inconsistent);
+				GTK3.gtk_toggle_button_set_inconsistent(handle, inconsistent);
 			}
 		}
 	}
@@ -669,10 +672,22 @@ long gtk_focus_out_event (long widget, long event) {
 }
 
 @Override
+boolean gtk4_key_press_event(long controller, int keyval, int keycode, int state, long event) {
+	boolean handled = super.gtk4_key_press_event(controller, keyval, keycode, state, event);
+	if (!handled) {
+		if ((style & SWT.RADIO) != 0) selected = getSelection();
+	}
+
+	return handled;
+}
+
+@Override
 long gtk_key_press_event (long widget, long event) {
 	long result = super.gtk_key_press_event (widget, event);
 	if (result != 0) return result;
-	if ((style & SWT.RADIO) != 0) selected  = getSelection ();
+	if ((style & SWT.RADIO) != 0) {
+		selected  = getSelection ();
+	}
 	return result;
 }
 
@@ -739,6 +754,8 @@ void releaseWidget() {
 
 	image = null;
 	text = null;
+
+	disposeDefaultDisabledImage();
 }
 
 /**
@@ -827,14 +844,18 @@ void _setAlignment (int alignment) {
 		style &= ~(SWT.UP | SWT.DOWN | SWT.LEFT | SWT.RIGHT);
 		style |= alignment & (SWT.UP | SWT.DOWN | SWT.LEFT | SWT.RIGHT);
 		boolean isRTL = (style & SWT.RIGHT_TO_LEFT) != 0;
-		byte arrowType [] = GTK.GTK_NAMED_ICON_GO_UP;
+		byte[] arrowType  = GTK.GTK_NAMED_ICON_GO_UP;
 		switch (alignment) {
 			case SWT.UP: arrowType = GTK.GTK_NAMED_ICON_GO_UP; break;
 			case SWT.DOWN: arrowType = GTK.GTK_NAMED_ICON_GO_DOWN; break;
 			case SWT.LEFT: arrowType = isRTL ? GTK.GTK_NAMED_ICON_GO_NEXT : GTK.GTK_NAMED_ICON_GO_PREVIOUS; break;
 			case SWT.RIGHT: arrowType = isRTL ? GTK.GTK_NAMED_ICON_GO_PREVIOUS : GTK.GTK_NAMED_ICON_GO_NEXT; break;
 		}
-		GTK3.gtk_image_set_from_icon_name (arrowHandle, arrowType, GTK.GTK_ICON_SIZE_MENU);
+		if (GTK.GTK4) {
+			GTK4.gtk_image_set_from_icon_name (arrowHandle, arrowType);
+		} else {
+			GTK3.gtk_image_set_from_icon_name (arrowHandle, arrowType, GTK.GTK_ICON_SIZE_MENU);
+		}
 		return;
 	}
 	if ((alignment & (SWT.LEFT | SWT.RIGHT | SWT.CENTER)) == 0) return;
@@ -988,7 +1009,7 @@ int setBounds (int x, int y, int width, int height, boolean move, boolean resize
 		Point sizes = resizeCalculationsGTK3(boxHandle, boxWidth, boxHeight);
 		allocation.width = sizes.x;
 		allocation.height = sizes.y;
-		GTK.gtk_widget_size_allocate (boxHandle, allocation);
+		gtk_widget_size_allocate(boxHandle, allocation, -1);
 	}
 	return result;
 }
@@ -996,7 +1017,7 @@ int setBounds (int x, int y, int width, int height, boolean move, boolean resize
 @Override
 void setFontDescription (long fontDesc) {
 	// Don't set the font if we have no text set
-	if (GTK.GTK_VERSION >= OS.VERSION(3, 22, 0) && ((text != null && text.isEmpty()) || text == null)) {
+	if ((text != null && text.isEmpty()) || text == null) {
 		return;
 	} else {
 		super.setFontDescription (fontDesc);
@@ -1102,7 +1123,7 @@ public void setGrayed (boolean grayed) {
 		GTK4.gtk_check_button_set_inconsistent(handle, inconsistent);
 	} else {
 		boolean inconsistent = grayed && GTK.gtk_toggle_button_get_active(handle);
-		GTK.gtk_toggle_button_set_inconsistent(handle, inconsistent);
+		GTK3.gtk_toggle_button_set_inconsistent(handle, inconsistent);
 	}
 }
 
@@ -1110,10 +1131,7 @@ public void setGrayed (boolean grayed) {
  * Sets the receiver's image to the argument, which may be
  * <code>null</code> indicating that no image should be displayed.
  * <p>
- * Note that a Button can display an image and text simultaneously
- * on Windows (starting with XP), GTK+ and OSX.  On other platforms,
- * a Button that has an image and text set into it will display the
- * image or text that was set most recently.
+ * Note that a Button can display an image and text simultaneously.
  * </p>
  * @param image the image to display on the receiver (may be <code>null</code>)
  *
@@ -1126,6 +1144,17 @@ public void setGrayed (boolean grayed) {
  * </ul>
  */
 public void setImage(Image image) {
+	checkWidget();
+	if ((style & SWT.ARROW) != 0) return;
+	disposeDefaultDisabledImage();
+	if (!enabled && defaultDisableImage != image && defaultDisableImage != null) {
+		return;
+	}
+	this.image = image;
+	_setImage(image);
+}
+
+private void _setImage (Image image) {
 	checkWidget();
 	if ((style & SWT.ARROW) != 0) return;
 
@@ -1146,7 +1175,6 @@ public void setImage(Image image) {
 			GTK3.gtk_image_set_from_surface(imageHandle, 0);
 		}
 	}
-	this.image = image;
 	updateWidgetsVisibility();
 	_setAlignment (style);
 }
@@ -1160,10 +1188,14 @@ void setOrientation (boolean create) {
 		if (labelHandle != 0) GTK.gtk_widget_set_direction (labelHandle, dir);
 		if (imageHandle != 0) GTK.gtk_widget_set_direction (imageHandle, dir);
 		if (arrowHandle != 0) {
-			byte arrowType [] = (style & SWT.RIGHT_TO_LEFT) != 0 ? GTK.GTK_NAMED_ICON_GO_NEXT : GTK.GTK_NAMED_ICON_GO_PREVIOUS;
-			switch (style & (SWT.LEFT | SWT.RIGHT)) {
-				case SWT.LEFT: GTK3.gtk_image_set_from_icon_name (arrowHandle, arrowType, GTK.GTK_ICON_SIZE_MENU); break;
-				case SWT.RIGHT: GTK3.gtk_image_set_from_icon_name (arrowHandle, arrowType, GTK.GTK_ICON_SIZE_MENU); break;
+			if ((style & (SWT.LEFT | SWT.RIGHT)) != 0) {
+				byte[] arrowType = (style & SWT.RIGHT_TO_LEFT) != 0 ? GTK.GTK_NAMED_ICON_GO_NEXT
+						: GTK.GTK_NAMED_ICON_GO_PREVIOUS;
+				if (GTK.GTK4) {
+					GTK4.gtk_image_set_from_icon_name (arrowHandle, arrowType);
+				} else {
+					GTK3.gtk_image_set_from_icon_name (arrowHandle, arrowType, GTK.GTK_ICON_SIZE_MENU);
+				}
 			}
 		}
 	}
@@ -1202,7 +1234,7 @@ public void setSelection (boolean selected) {
 		if (GTK.GTK4) {
 			GTK4.gtk_check_button_set_inconsistent(handle, inconsistent);
 		} else {
-			GTK.gtk_toggle_button_set_inconsistent(handle, inconsistent);
+			GTK3.gtk_toggle_button_set_inconsistent(handle, inconsistent);
 		}
 	}
 	if ((style & SWT.RADIO) != 0) {
@@ -1262,9 +1294,7 @@ public void setText (String string) {
 	_setAlignment (style);
 	// Now that text has been added, set the font. This ensures
 	// the Button's size is correctly calculated/updated.
-	if (GTK.GTK_VERSION >= OS.VERSION(3, 22, 0)) {
-		setFontDescription(font == null ? defaultFont().handle : font.handle);
-	}
+	setFontDescription(font == null ? defaultFont().handle : font.handle);
 }
 
 private void updateWidgetsVisibility() {
@@ -1329,5 +1359,45 @@ long dpiChanged(long object, long arg0) {
 	}
 
 	return 0;
+}
+
+/**
+* Enables the receiver if the argument is <code>true</code>,
+* and disables it otherwise.
+* <p>
+* A disabled control is typically
+* not selectable from the user interface and draws with an
+* inactive or "grayed" look.
+* </p>
+*
+* @param enabled the new enabled state
+*
+* @exception SWTException <ul>
+*    <li>ERROR_WIDGET_DISPOSED - if the receiver has been disposed</li>
+*    <li>ERROR_THREAD_INVALID_ACCESS - if not called from the thread that created the receiver</li>
+* </ul>
+*/
+@Override
+public void setEnabled (boolean enabled) {
+	checkWidget();
+	if (this.enabled == enabled) return;
+	this.enabled = enabled;
+
+	super.setEnabled(enabled);
+
+	if (!enabled) {
+		if (defaultDisableImage == null && image != null) {
+			defaultDisableImage = new Image(getDisplay(), image, SWT.IMAGE_DISABLE);
+		}
+		_setImage(defaultDisableImage);
+	}
+	if (enabled && image != null) _setImage(image);
+}
+
+private void disposeDefaultDisabledImage() {
+	if (defaultDisableImage != null) {
+		defaultDisableImage.dispose();
+		defaultDisableImage = null;
+	}
 }
 }

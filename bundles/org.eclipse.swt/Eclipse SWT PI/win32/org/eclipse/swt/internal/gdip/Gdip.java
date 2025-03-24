@@ -810,6 +810,13 @@ public static final native int GraphicsPath_Transform(long path, long matrix);
  * @param backColor cast=(Color)
  */
 public static final native long HatchBrush_new(int hatchStyle, int foreColor, int backColor);
+/** @method flags=delete */
+public static final native void Image_delete(long image);
+/**
+ * @method flags=cpp
+ * @param image cast=(Image *)
+ */
+public static final native long Image_Clone(long image);
 /**
  * @method flags=cpp
  * @param image cast=(Image*)
@@ -901,8 +908,6 @@ public static final native int LinearGradientBrush_ScaleTransform(long brush, fl
  * @param order cast=(MatrixOrder)
  */
 public static final native int LinearGradientBrush_TranslateTransform(long brush, float dx, float dy, int order);
-/** @method flags=new */
-public static final native long Matrix_new();
 /**
  * @method flags=new
  * @param m11 cast=(REAL)
@@ -941,8 +946,50 @@ public static final native int Matrix_Multiply(long matrix, long matrix1, int or
 /**
  * @method flags=cpp
  * @param matrix cast=(Matrix *)
+ * @param angle cast=(REAL)
+ * @param order cast=(MatrixOrder)
+ */
+public static final native int Matrix_Rotate(long matrix, float angle, int order);
+/**
+ * @method flags=cpp
+ * @param matrix cast=(Matrix *)
+ * @param scaleX cast=(REAL)
+ * @param scaleY cast=(REAL)
+ * @param order cast=(MatrixOrder)
+ */
+public static final native int Matrix_Scale(long matrix, float scaleX, float scaleY, int order);
+/**
+ * @method flags=cpp
+ * @param matrix cast=(Matrix *)
+ * @param shearX cast=(REAL)
+ * @param shearY cast=(REAL)
+ * @param order cast=(MatrixOrder)
+ */
+public static final native int Matrix_Shear(long matrix, float shearX, float shearY, int order);
+/**
+ * @method flags=cpp
+ * @param matrix cast=(Matrix *)
+ */
+public static final native int Matrix_TransformPoints(long matrix, PointF pts, int count);
+/**
+ * @method flags=cpp
+ * @param matrix cast=(Matrix *)
+ * @param pts cast=(PointF *)
+ */
+public static final native int Matrix_TransformPoints(long matrix, float[] pts, int count);
+/**
+ * @method flags=cpp
+ * @param matrix cast=(Matrix *)
  */
 public static final native int Matrix_TransformVectors(long matrix, PointF pts, int count);
+/**
+ * @method flags=cpp
+ * @param matrix cast=(Matrix *)
+ * @param offsetX cast=(REAL)
+ * @param offsetY cast=(REAL)
+ * @param order cast=(MatrixOrder)
+ */
+public static final native int Matrix_Translate(long matrix, float offsetX, float offsetY, int order);
 /**
  * @method flags=cpp
  * @param matrix cast=(Matrix *)
@@ -1147,6 +1194,13 @@ public static final native int StringFormat_SetTabStops(long format, float first
  * @param wrapMode cast=(WrapMode)
  */
 public static final native long TextureBrush_new(long image, int wrapMode, float dstX, float dstY, float dstWidth, float dstHeight);
+/**
+ * @method flags=new
+ * @param image cast=(Image *)
+ * @param rect cast=(Rect *),flags=struct
+ * @param attribs cast=(ImageAttributes *)
+ */
+public static final native long TextureBrush_new(long image, Rect rect, long attribs);
 /** @method flags=delete */
 public static final native void TextureBrush_delete(long brush);
 /**
@@ -1172,4 +1226,9 @@ public static final native int TextureBrush_ScaleTransform(long brush, float sx,
  * @param order cast=(MatrixOrder)
  */
 public static final native int TextureBrush_TranslateTransform(long brush, float dx, float dy, int order);
+/**
+ * @method flags=cpp
+ * @param brush cast=(TextureBrush *)
+ */
+public static final native long TextureBrush_GetImage(long brush);
 }

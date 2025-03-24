@@ -57,6 +57,8 @@ public abstract class Control extends Widget implements Drawable {
 	static final boolean DISABLE_EMOJI = Boolean.getBoolean("SWT_GTK_INPUT_HINT_NO_EMOJI");
 
 	long fixedHandle;
+	long firstFixedHandle = 0;
+	long keyController;
 	long redrawWindow, enableWindow, provider;
 	int drawCount, backgroundAlpha = 255;
 	long dragGesture, zoomGesture, rotateGesture, panGesture;
@@ -111,7 +113,6 @@ public abstract class Control extends Widget implements Drawable {
 	 * is currently pressed or released for DND.
 	 */
 	static boolean mouseDown;
-	boolean dragBegun;
 
 	/**
 	 * Flag to check the scale factor upon the first drawing of this Control.
@@ -418,24 +419,6 @@ void hookEvents () {
 	setRotateGesture();
 
 	long eventHandle = eventHandle ();
-	long blockHandle = fixedHandle != 0 ? fixedHandle : eventHandle;
-	/*
-	* Feature in GTK3.  Events such as mouse move are propagate up
-	* the widget hierarchy and are seen by the parent.  This is the
-	* correct GTK behavior but not correct for SWT.  The fix is to
-	* hook a signal after and stop the propagation using a negative
-	* event number to distinguish this case.
-	*
-	* The signal is hooked to the fixedHandle to catch events sent to
-	* lightweight widgets.
-	*
-	* In GTK4, event propagation is set in the event controller
-	*/
-	if (!GTK.GTK4) {
-		OS.g_signal_connect_closure_by_id(blockHandle, display.signalIds[BUTTON_PRESS_EVENT], 0, display.getClosure(BUTTON_PRESS_EVENT_INVERSE), true);
-		OS.g_signal_connect_closure_by_id(blockHandle, display.signalIds[BUTTON_RELEASE_EVENT], 0, display.getClosure(BUTTON_RELEASE_EVENT_INVERSE), true);
-		OS.g_signal_connect_closure_by_id(blockHandle, display.signalIds[MOTION_NOTIFY_EVENT], 0, display.getClosure(MOTION_NOTIFY_EVENT_INVERSE), true);
-	}
 
 	/* Connect the event_after signal for both key and mouse */
 	if (GTK.GTK4) {
@@ -450,14 +433,13 @@ void hookEvents () {
 
 private void hookKeyboardAndFocusSignals(long focusHandle) {
 	if (GTK.GTK4) {
-		long keyController = GTK4.gtk_event_controller_key_new();
-		GTK.gtk_event_controller_set_propagation_phase(keyController, GTK.GTK_PHASE_TARGET);
+		keyController = GTK4.gtk_event_controller_key_new();
 		GTK4.gtk_widget_add_controller(focusHandle, keyController);
+		GTK.gtk_event_controller_set_propagation_phase(keyController, GTK.GTK_PHASE_CAPTURE);
 		OS.g_signal_connect(keyController, OS.key_pressed, display.keyPressReleaseProc, KEY_PRESSED);
 		OS.g_signal_connect(keyController, OS.key_released, display.keyPressReleaseProc, KEY_RELEASED);
 
 		long focusController = GTK4.gtk_event_controller_focus_new();
-		GTK.gtk_event_controller_set_propagation_phase(focusController, GTK.GTK_PHASE_TARGET);
 		GTK4.gtk_widget_add_controller(focusHandle, focusController);
 		OS.g_signal_connect(focusController, OS.enter, display.focusProc, FOCUS_IN);
 		OS.g_signal_connect(focusController, OS.leave, display.focusProc, FOCUS_OUT);
@@ -475,26 +457,27 @@ private void hookMouseSignals(long eventHandle) {
 	long enterExitHandle = enterExitHandle();
 
 	if (GTK.GTK4) {
+		// Click & motion events are limited only to the target widget
 		long clickGesture = GTK4.gtk_gesture_click_new();
+		GTK.gtk_event_controller_set_propagation_phase(clickGesture, GTK.GTK_PHASE_TARGET);
 		GTK.gtk_gesture_single_set_button(clickGesture, 0);
 		GTK4.gtk_widget_add_controller(eventHandle, clickGesture);
 		OS.g_signal_connect(clickGesture, OS.pressed, display.gesturePressReleaseProc, GESTURE_PRESSED);
 		OS.g_signal_connect(clickGesture, OS.released, display.gesturePressReleaseProc, GESTURE_RELEASED);
 
-		long scrollController = GTK4.gtk_event_controller_scroll_new(GTK.GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES);
-		GTK.gtk_event_controller_set_propagation_phase(scrollController, GTK.GTK_PHASE_TARGET);
-		GTK4.gtk_widget_add_controller(eventHandle, scrollController);
-		OS.g_signal_connect(scrollController, OS.scroll, display.enterMotionScrollProc, SCROLL);
-
 		long motionController = GTK4.gtk_event_controller_motion_new();
 		GTK.gtk_event_controller_set_propagation_phase(motionController, GTK.GTK_PHASE_TARGET);
 		GTK4.gtk_widget_add_controller(eventHandle, motionController);
-		OS.g_signal_connect(motionController, OS.motion, display.enterMotionScrollProc, MOTION);
+		OS.g_signal_connect(motionController, OS.motion, display.enterMotionProc, MOTION);
+
+		long scrollController = GTK4.gtk_event_controller_scroll_new(GTK.GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES);
+		GTK.gtk_event_controller_set_propagation_phase(scrollController, GTK.GTK_PHASE_TARGET);
+		GTK4.gtk_widget_add_controller(eventHandle, scrollController);
+		OS.g_signal_connect(scrollController, OS.scroll, display.scrollProc, SCROLL);
 
 		long enterExitController = GTK4.gtk_event_controller_motion_new();
-		GTK.gtk_event_controller_set_propagation_phase(enterExitController, GTK.GTK_PHASE_TARGET);
 		GTK4.gtk_widget_add_controller(enterExitHandle, enterExitController);
-		OS.g_signal_connect(enterExitController, OS.enter, display.enterMotionScrollProc, ENTER);
+		OS.g_signal_connect(enterExitController, OS.enter, display.enterMotionProc, ENTER);
 		OS.g_signal_connect(enterExitController, OS.leave, display.leaveProc, LEAVE);
 	} else {
 		int eventMask = GDK.GDK_POINTER_MOTION_MASK | GDK.GDK_BUTTON_PRESS_MASK | GDK.GDK_BUTTON_RELEASE_MASK | GDK.GDK_SCROLL_MASK | GDK.GDK_SMOOTH_SCROLL_MASK;
@@ -508,6 +491,21 @@ private void hookMouseSignals(long eventHandle) {
 		GTK3.gtk_widget_add_events (enterExitHandle, enterExitMask);
 		OS.g_signal_connect_closure_by_id(enterExitHandle, display.signalIds[ENTER_NOTIFY_EVENT], 0, display.getClosure(ENTER_NOTIFY_EVENT), false);
 		OS.g_signal_connect_closure_by_id(enterExitHandle, display.signalIds[LEAVE_NOTIFY_EVENT], 0, display.getClosure(LEAVE_NOTIFY_EVENT), false);
+
+		/*
+		* Feature in GTK3.  Events such as mouse move are propagate up
+		* the widget hierarchy and are seen by the parent.  This is the
+		* correct GTK behavior but not correct for SWT.  The fix is to
+		* hook a signal after and stop the propagation using a negative
+		* event number to distinguish this case.
+		*
+		* The signal is hooked to the fixedHandle to catch events sent to
+		* lightweight widgets.
+		*/
+		long blockHandle = fixedHandle != 0 ? fixedHandle : eventHandle;
+		OS.g_signal_connect_closure_by_id(blockHandle, display.signalIds[BUTTON_PRESS_EVENT], 0, display.getClosure(BUTTON_PRESS_EVENT_INVERSE), true);
+		OS.g_signal_connect_closure_by_id(blockHandle, display.signalIds[BUTTON_RELEASE_EVENT], 0, display.getClosure(BUTTON_RELEASE_EVENT_INVERSE), true);
+		OS.g_signal_connect_closure_by_id(blockHandle, display.signalIds[MOTION_NOTIFY_EVENT], 0, display.getClosure(MOTION_NOTIFY_EVENT_INVERSE), true);
 	}
 }
 
@@ -643,7 +641,7 @@ public boolean print (GC gc) {
 	GTK.gtk_widget_get_allocation(topHandle, allocation);
 	// Prevent allocation warnings
 	GTK.gtk_widget_get_preferred_size(topHandle, null, null);
-	GTK.gtk_widget_size_allocate(topHandle, allocation);
+	GTK3.gtk_widget_size_allocate(topHandle, allocation);
 	GTK3.gtk_widget_draw(topHandle, gc.handle);
 	return true;
 }
@@ -886,11 +884,7 @@ void forceResize () {
 	gtk_widget_get_preferred_size (topHandle, requisition);
 	GtkAllocation allocation = new GtkAllocation ();
 	GTK.gtk_widget_get_allocation(topHandle, allocation);
-	if (GTK.GTK4) {
-		GTK.gtk_widget_size_allocate (topHandle, allocation, -1);
-	} else {
-		GTK.gtk_widget_size_allocate (topHandle, allocation);
-	}
+	gtk_widget_size_allocate(topHandle, allocation, -1);
 }
 
 /**
@@ -1074,7 +1068,7 @@ Point resizeCalculationsGTK3 (long widget, int width, int height) {
 }
 
 int setBounds (int x, int y, int width, int height, boolean move, boolean resize) {
-	// bug in GTK2 crashes JVM, in GTK3 the new shell only. See bug 472743
+	// bug in GTK3 the crashes new shell only. See bug 472743
 	width = Math.min(width, (2 << 14) - 1);
 	height = Math.min(height, (2 << 14) - 1);
 
@@ -1157,11 +1151,7 @@ int setBounds (int x, int y, int width, int height, boolean move, boolean resize
 			Control focusControl = display.getFocusControl();
 			GTK.gtk_widget_show(topHandle);
 			gtk_widget_get_preferred_size (topHandle, requisition);
-			if (GTK.GTK4) {
-				GTK.gtk_widget_size_allocate (topHandle, allocation, -1);
-			} else {
-				GTK.gtk_widget_size_allocate (topHandle, allocation);
-			}
+			gtk_widget_size_allocate(topHandle, allocation, -1);
 			GTK.gtk_widget_hide(topHandle);
 			/* Bug 540002: Showing and hiding widget causes original focused control to loose focus,
 			 * Reset focus to original focused control after dealing with allocation.
@@ -1171,11 +1161,11 @@ int setBounds (int x, int y, int width, int height, boolean move, boolean resize
 			}
 		} else {
 			if (GTK.GTK4) {
-				GTK.gtk_widget_size_allocate (topHandle, allocation, -1);
+				GTK4.gtk_widget_size_allocate (topHandle, allocation, -1);
 			} else {
 				// Prevent GTK+ allocation warnings, preferred size should be retrieved before setting allocation size.
 				GTK.gtk_widget_get_preferred_size(topHandle, null, null);
-				GTK.gtk_widget_size_allocate (topHandle, allocation);
+				GTK3.gtk_widget_size_allocate (topHandle, allocation);
 			}
 		}
 	}
@@ -1406,7 +1396,7 @@ public void setRegion (Region region) {
 		 * This is a hack to force the outside pixels to be transparent on Wayland so that
 		 * Part-Drag on Eclipse does not cause black-out. See Bug 535083.
 		 */
-		if (!OS.isX11()) {
+		if (OS.isWayland()) {
 			double alpha = GTK.gtk_widget_get_opacity(topHandle);
 			if (alpha == 1) alpha = 0.99;
 			GTK.gtk_widget_set_opacity(topHandle, alpha);
@@ -2680,36 +2670,66 @@ boolean dragDetect (int button, int count, int stateMask, int x, int y) {
 }
 
 boolean dragDetect (int x, int y, boolean filter, boolean dragOnTimeout, boolean [] consume) {
-	boolean dragging = false;
-	/*
-	 * Feature in GTK: In order to support both X.11/Wayland, GTKGestures are used
-	 *  as of GTK3.14 in order to acquire mouse position offsets to decide on dragging.
-	 *  See Bug 503431.
-	 */
-	if (!OS.isX11()) { // Wayland
+	// Historically, SWT detected drag&drop on X11 this way:
+	//   1) on left mouse down event, begin a modal event loop
+	//      In GTK, this is `button-press-event` signal.
+	//      In SWT, this is `Control#gtk_button_press_event()`
+	//   2) In the loop, wait for mouse to move far enough to trigger drag&drop action
+	//   3) If drag&drop is not triggered within 500ms, or mouse button released, or Esc pressed,
+	//      and a few other conditions, consider it NOT drag&drop and a mere mouse click.
+	//
+	// However, on Wayland, it is no longer possible: as long as SWT does not
+	// return from `button-press-event` signal handler, it is not possible to
+	// receive ANY mouse events from `gdk_event_get()`. Not mouse movements,
+	// not even mouse up event. This causes SWT to pointlessly loop for 500ms
+	// after each mouse down.
+	//
+	// In Bug 503431, approach was changed to trigger drag&drop from MouseMove signal instead
+	//   In GTK, this is `motion-notify-event` signal.
+	//   In SWT, this is `Control#gtk_motion_notify_event()`
+	//
+	// Initially the new code was supposed to work on both X11 and Wayland, but unfortunately
+	// the new implementation had its problems:
+	// * Bug 503431 - `StyledText` wants to know if DND has started right after calling `dragDetect()`
+	//   This required the workaround where `MouseDown` event is not reported until DND decision is made.
+	// * Bug 503431 - multi-select `Tree`, `Table`, `List` drag&drop broken (only drags one item)
+	//   This is because GTK itself doesn't support multi-item DND.
+	// * Bug 503431 - various mistakes
+	//   For example, there was a `Callback` leak. It was fixed soon after.
+	// * Issue 400  - wrong mouse events reporting
+	//   This is what I'm fixing now.
+	//
+	// As a result, in Bug 510446, the new implementation was limited to Wayland only, so that more
+	// common back then X11 could continue to work without bugs.
+	//
+	// I hope that I fixed the last of the problems on Wayland now (2023-03-11),
+	// and X11 code could finally be thrown away. But I don't think I dare to try it right now.
+
+	if (OS.isWayland()) {
+		// Don't drag if mouse is not down. This condition is not as
+		// trivial as it seems, see Bug 541635 where drag is tested
+		// after drag already completed and mouse is released.
+		if (!mouseDown) {
+			return false;
+		}
+
 		double [] offsetX = new double[1];
 		double [] offsetY = new double [1];
 		double [] startX = new double[1];
 		double [] startY = new double [1];
-		if (GTK.gtk_gesture_drag_get_start_point(dragGesture, startX, startY)) {
-			GTK.gtk_gesture_drag_get_offset(dragGesture, offsetX, offsetY);
-			if (GTK3.gtk_drag_check_threshold(handle, (int)startX[0], (int) startY[0], (int) startX[0]
-					+ (int) offsetX[0], (int) startY[0] + (int) offsetY[0])) {
-				dragging = true;
-			}
-		} else {
+		if (!GTK.gtk_gesture_drag_get_start_point(dragGesture, startX, startY)) {
 			return false;
 		}
-		// Block until mouse was released or drag was detected, see Bug 515396.
-		while (true) {
-			if (!mouseDown) {
-				return false;
-			}
-			if (dragBegun) {
-				return true;
-			}
+
+		GTK.gtk_gesture_drag_get_offset(dragGesture, offsetX, offsetY);
+		if (GTK3.gtk_drag_check_threshold(handle, (int)startX[0], (int) startY[0], (int) startX[0]
+				+ (int) offsetX[0], (int) startY[0] + (int) offsetY[0])) {
+			return true;
 		}
+
+		return false;
 	} else {
+		boolean dragging = false;
 		boolean quit = false;
 		//428852 DND workaround for GTK3.
 		//Gtk3 no longer sends motion events on the same control during thread sleep
@@ -2810,11 +2830,11 @@ boolean dragDetect (int x, int y, boolean filter, boolean dragOnTimeout, boolean
 			}
 			gdk_event_free (eventPtr);
 		}
+		return dragging;
 	}
-	return dragging;
 }
 
-boolean filterKey (int keyval, long event) {
+boolean filterKey (long event) {
 	long imHandle = imHandle ();
 	if (imHandle != 0) {
 		if (GTK.GTK4)
@@ -2924,6 +2944,7 @@ public boolean forceFocus () {
 	Shell shell = getShell ();
 	shell.setSavedFocus (this);
 	if (!isEnabled () || !isVisible ()) return false;
+	if (display.getActiveShell() != shell && !Display.isActivateShellOnForceFocus()) return false;
 	shell.bringToTop (false);
 	return forceFocus (focusHandle ());
 }
@@ -3137,7 +3158,7 @@ long getFontDescription () {
 	if ("ppc64le".equals(System.getProperty("os.arch"))) {
 		// Unlike 'gtk_style_context_get()', 'gtk_style_context_get_font()'
 		// returns pointer owned by GTK. The workaround is to make a copy of the data.
-		long gtkOwnedPointer = GTK.gtk_style_context_get_font(context, GTK.GTK_STATE_FLAG_NORMAL);
+		long gtkOwnedPointer = GTK3.gtk_style_context_get_font(context, GTK.GTK_STATE_FLAG_NORMAL);
 		return OS.pango_font_description_copy(gtkOwnedPointer);
 	} else {
 		if (GTK.GTK4) {
@@ -3158,7 +3179,7 @@ long getFontDescription () {
 		} else {
 			GTK.gtk_style_context_save(context);
 			GTK.gtk_style_context_set_state(context, GTK.GTK_STATE_FLAG_NORMAL);
-			GTK.gtk_style_context_get(context, GTK.GTK_STATE_FLAG_NORMAL, GTK.gtk_style_property_font, fontDesc, 0);
+			GTK3.gtk_style_context_get(context, GTK.GTK_STATE_FLAG_NORMAL, GTK.gtk_style_property_font, fontDesc, 0);
 			GTK.gtk_style_context_restore(context);
 			return fontDesc [0];
 		}
@@ -3240,29 +3261,19 @@ public Menu getMenu () {
 public Monitor getMonitor () {
 	checkWidget ();
 	Monitor[] monitors = display.getMonitors ();
-	if (GTK.GTK_VERSION >= OS.VERSION(3, 22, 0)) {
-		long display = GDK.gdk_display_get_default ();
-		if (display != 0) {
-			long monitor;
-			if (GTK.GTK4) {
-				monitor = GDK.gdk_display_get_monitor_at_surface(display, paintSurface ());
-			} else {
-				monitor = GDK.gdk_display_get_monitor_at_window(display, paintWindow ());
-			}
-			long toCompare;
-			for (int i = 0; i < monitors.length; i++) {
-				toCompare = GDK.gdk_display_get_monitor(display, i);
-				if (toCompare == monitor) {
-					return monitors[i];
-				}
-			}
+	long displayHandle = GDK.gdk_display_get_default ();
+	if (displayHandle != 0) {
+		long monitor;
+		if (GTK.GTK4) {
+			monitor = GDK.gdk_display_get_monitor_at_surface(displayHandle, paintSurface ());
+		} else {
+			monitor = GDK.gdk_display_get_monitor_at_window(displayHandle, paintWindow ());
 		}
-	} else {
-		long screen = GDK.gdk_screen_get_default ();
-		if (screen != 0) {
-			int monitorNumber = GDK.gdk_screen_get_monitor_at_window (screen, paintWindow ());
-			if (monitorNumber >= 0 && monitorNumber < monitors.length) {
-				return monitors [monitorNumber];
+		long toCompare;
+		for (int i = 0; i < monitors.length; i++) {
+			toCompare = GDK.gdk_display_get_monitor(displayHandle, i);
+			if (toCompare == monitor) {
+				return monitors[i];
 			}
 		}
 	}
@@ -3428,17 +3439,17 @@ Point getThickness (long widget) {
 
 void gtk_style_context_get_padding(long context, int state, GtkBorder padding) {
 	if (GTK.GTK4) {
-		GTK.gtk_style_context_get_padding(context, padding);
+		GTK4.gtk_style_context_get_padding(context, padding);
 	} else {
-		GTK.gtk_style_context_get_padding(context, state, padding);
+		GTK3.gtk_style_context_get_padding(context, state, padding);
 	}
 }
 
 void gtk_style_context_get_border (long context, int state, GtkBorder padding) {
 	if (GTK.GTK4) {
-		GTK.gtk_style_context_get_border(context, padding);
+		GTK4.gtk_style_context_get_border(context, padding);
 	} else {
-		GTK.gtk_style_context_get_border(context, state, padding);
+		GTK3.gtk_style_context_get_border(context, state, padding);
 	}
 }
 
@@ -3448,21 +3459,22 @@ void gtk_style_context_get_border (long context, int state, GtkBorder padding) {
 @Override
 void gtk_gesture_press_event (long gesture, int n_press, double x, double y, long event) {
 	mouseDown = true;
-	dragBegun = false;
-
-	if ((state & MENU) == 0) {
-		int eventButton = GDK.gdk_button_event_get_button(event);
-
-		if (eventButton == 3) {
-			showMenu ((int)x, (int)y);
-		}
-	}
 
 	int eventButton = GDK.gdk_button_event_get_button(event);
 	int eventTime = GDK.gdk_event_get_time(event);
 	int eventState = GDK.gdk_event_get_modifier_state(event);
 
-	sendMouseEvent(SWT.MouseDown, eventButton, n_press, 0, false, eventTime, x, y, true, eventState);
+	display.clickCount = n_press;
+	if (n_press == 1) {
+		sendMouseEvent(SWT.MouseDown, eventButton, n_press, 0, false, eventTime, x, y, false, eventState);
+		if ((state & MENU) == 0) {
+			if (eventButton == 3) {
+				showMenu ((int)x, (int)y);
+			}
+		}
+	} else if (n_press == 2) {
+		sendMouseEvent(SWT.MouseDoubleClick, eventButton, n_press, 0, false, eventTime, x, y, false, eventState);
+	}
 }
 
 @Override
@@ -3488,9 +3500,18 @@ long gtk_button_press_event (long widget, long event) {
 	return gtk_button_press_event (widget, event, true);
 }
 
+boolean wantDragDropDetection () {
+	// Drag&drop detection has its costs: when mouse button is pressed,
+	// mouse events are not reported until SWT can decide if drag&drop
+	// was triggered or not. For some applications, this could be a problem.
+	// Consider for example a graphical drawing application: it would expect
+	// to begin drawing as soon as mouse button is pressed.
+	// If app is interested in drag&drop, it will likely listen to `DragDetect`.
+	return hooks (SWT.DragDetect);
+}
+
 long gtk_button_press_event (long widget, long event, boolean sendMouseDown) {
 	mouseDown = true;
-	dragBegun = false;
 
 	double [] eventX = new double [1];
 	double [] eventY = new double [1];
@@ -3535,12 +3556,10 @@ long gtk_button_press_event (long widget, long event, boolean sendMouseDown) {
 			if (peekedEventType == GDK.GDK_3BUTTON_PRESS) display.clickCount = 3;
 			gdk_event_free (nextEvent);
 		}
-		/*
-		 * Feature in GTK: DND detection for X.11 & Wayland support is done through motion notify event
-		 * instead of mouse click event. See Bug 503431.
-		 */
-		if (OS.isX11()) { // Wayland
-			if ((state & DRAG_DETECT) != 0 && hooks (SWT.DragDetect)) {
+
+		// See comment in #dragDetect()
+		if (OS.isX11()) {
+			if ((state & DRAG_DETECT) != 0 && wantDragDropDetection ()) {
 				if (eventButton[0] == 1) {
 					boolean [] consume = new boolean [1];
 					if (dragDetect ((int) eventX[0], (int) eventY[0], true, true, consume)) {
@@ -3559,11 +3578,9 @@ long gtk_button_press_event (long widget, long event, boolean sendMouseDown) {
 			}
 		}
 		if (isDisposed ()) return 1;
-		/*
-		 * Feature in GTK: DND detection for X.11 & Wayland support is done through motion notify event
-		 * instead of mouse click event. See Bug 503431.
-		 */
-		if (OS.isX11()) { // Wayland
+
+		// See comment in #dragDetect()
+		if (OS.isX11()) {
 			if (dragging) {
 				Point scaledEvent = DPIUtil.autoScaleDown(new Point((int)eventX[0], (int) eventY[0]));
 				sendDragEvent (eventButton[0], eventState[0], scaledEvent.x, scaledEvent.y, false);
@@ -3628,23 +3645,39 @@ long gtk_commit (long imcontext, long text) {
 	return 0;
 }
 
+
+
 @Override
-long gtk_enter_notify_event (long widget, long event) {
-	if (GTK.GTK4) {
-		if (display.currentControl == this) return 0;
+void gtk4_enter_event(long controller, double x, double y, long event) {
+	/*
+	 * Set tool tip for this shell, and also null tooltip for shell
+	 * if control being entered does not have a tooltip text set.
+	 */
+	byte [] buffer = null;
+	if (toolTipText != null && toolTipText.length() != 0) {
+		char [] chars = fixMnemonic (toolTipText, false, true);
+		buffer = Converter.wcsToMbcs (chars, true);
+	}
+	long toolHandle = getShell().handle;
+	GTK.gtk_widget_set_tooltip_text (toolHandle, buffer);
 
-		if (display.currentControl != null && !display.currentControl.isDisposed ()) {
-			display.removeMouseHoverTimeout (display.currentControl.handle);
-			display.currentControl.sendMouseEvent (SWT.MouseExit,  0, 0, 0, 0, false, 0);
-		}
-		if (!isDisposed ()) {
-			display.currentControl = this;
-			return sendMouseEvent (SWT.MouseEnter, 0, 0, 0, 0, false, 0) ? 0 : 1;
-		}
+	if (display.currentControl == this) return;
 
-		return 0;
+	// Disconnect previous current Control and send MouseExit event to it
+	if (display.currentControl != null && !display.currentControl.isDisposed()) {
+		display.removeMouseHoverTimeout(display.currentControl.handle);
+		display.currentControl.sendMouseEvent(SWT.MouseExit, 0, 0, x, y, false, 0);
 	}
 
+	// Set display's current control and send MouseEnter event
+	if (!isDisposed()) {
+		display.currentControl = this;
+		sendMouseEvent(SWT.MouseEnter, 0, 0, x, y, false, 0);
+	}
+}
+
+@Override
+long gtk_enter_notify_event (long widget, long event) {
 	/*
 	 * Feature in GTK. Children of a shell will inherit and display the shell's
 	 * tooltip if they do not have a tooltip of their own. The fix is to use the
@@ -3663,13 +3696,8 @@ long gtk_enter_notify_event (long widget, long event) {
 	int [] state = new int [1];
 	double [] eventX = new double [1];
 	double [] eventY = new double [1];
-	if (GTK.GTK4) {
-		state[0] = GDK.gdk_event_get_modifier_state(event);
-		GDK.gdk_event_get_position(event, eventX, eventY);
-	} else {
-		GDK.gdk_event_get_state(event, state);
-		GDK.gdk_event_get_coords(event, eventX, eventY);
-	}
+	GDK.gdk_event_get_state(event, state);
+	GDK.gdk_event_get_coords(event, eventX, eventY);
 
 	int time = GDK.gdk_event_get_time(event);
 
@@ -3684,13 +3712,9 @@ long gtk_enter_notify_event (long widget, long event) {
 	GdkEventCrossing gdkEvent = new GdkEventCrossing ();
 	long childGdkResource = 0;
 	int [] crossingMode = new int[1];
-	if (GTK.GTK4) {
-		crossingMode[0] = GDK.gdk_crossing_event_get_mode(event);
-	} else {
-		OS.memmove(gdkEvent, event, GdkEventCrossing.sizeof);
-		crossingMode[0] = gdkEvent.mode;
-		childGdkResource = gdkEvent.subwindow;
-	}
+	GTK3.memmove(gdkEvent, event, GdkEventCrossing.sizeof);
+	crossingMode[0] = gdkEvent.mode;
+	childGdkResource = gdkEvent.subwindow;
 
 	/*
 	 * It is possible to send out too many enter/exit events if entering a
@@ -3734,11 +3758,7 @@ long gtk_event_after (long widget, long gdkEvent) {
 				GDK.gdk_event_get_root_coords(gdkEvent, eventRX, eventRY);
 
 				int [] eventButton = new int [1];
-				if (GTK.GTK4) {
-					eventButton[0] = GDK.gdk_button_event_get_button(gdkEvent);
-				} else {
-					GDK.gdk_event_get_button(gdkEvent, eventButton);
-				}
+				GDK.gdk_event_get_button(gdkEvent, eventButton);
 
 				if (eventButton[0] == 3) {
 					showMenu ((int) eventRX[0], (int) eventRY[0]);
@@ -3749,13 +3769,9 @@ long gtk_event_after (long widget, long gdkEvent) {
 		case GDK.GDK_FOCUS_CHANGE: {
 			if (!isFocusHandle (widget)) break;
 			boolean [] focusIn = new boolean [1];
-			if (GTK.GTK4) {
-				focusIn[0] = GDK.gdk_focus_event_get_in(gdkEvent);
-			} else {
-				GdkEventFocus gdkEventFocus = new GdkEventFocus ();
-				OS.memmove (gdkEventFocus, gdkEvent, GdkEventFocus.sizeof);
-				focusIn[0] = gdkEventFocus.in != 0;
-			}
+			GdkEventFocus gdkEventFocus = new GdkEventFocus ();
+			GTK3.memmove (gdkEventFocus, gdkEvent, GdkEventFocus.sizeof);
+			focusIn[0] = gdkEventFocus.in != 0;
 
 			/*
 			 * Feature in GTK. The GTK combo box popup under some window managers
@@ -3844,27 +3860,29 @@ void cairoClipRegion (long cairo) {
 	eventRegion = actualRegion;
 }
 
+
+
+@Override
+void gtk4_draw(long widget, long cairo, Rectangle bounds) {
+	if (!hooksPaint()) return;
+
+	GCData data = new GCData();
+	data.cairo = cairo;
+	GC gc = GC.gtk_new(this, data);
+
+	Event event = new Event();
+	event.count = 1;
+	event.gc = gc;
+	event.setBounds(bounds);
+
+	drawWidget(gc);
+	sendEvent(SWT.Paint, event);
+	gc.dispose();
+	event.gc = null;
+}
+
 @Override
 long gtk_draw (long widget, long cairo) {
-	if (GTK.GTK4) {
-		if (!hooksPaint()) return 0;
-
-		GCData data = new GCData();
-		data.cairo = cairo;
-		GC gc = GC.gtk_new(this, data);
-
-		Event event = new Event();
-		event.count = 1;
-		event.gc = gc;
-
-		drawWidget(gc);
-		sendEvent(SWT.Paint, event);
-		gc.dispose();
-		event.gc = null;
-
-		return 0;
-	}
-
 	if (checkScaleFactor) {
 		long surface = Cairo.cairo_get_target(cairo);
 		if (surface != 0) {
@@ -3939,6 +3957,32 @@ long gtk_focus_in_event (long widget, long event) {
 }
 
 @Override
+void gtk4_focus_enter_event(long controller, long event) {
+	super.gtk4_focus_enter_event(controller, event);
+
+	sendFocusEvent(SWT.FocusIn);
+}
+
+@Override
+void gtk4_focus_window_event(long handle, long event) {
+	super.gtk4_focus_window_event(handle, event);
+
+	if(firstFixedHandle == 0) {
+		long child = handle;
+		//3rd child of shell will be SWTFixed
+		for(int i = 0; i<3; i++) {
+			child = GTK4.gtk_widget_get_first_child(child);
+		}
+		firstFixedHandle = child != 0 ? child:0;
+	}
+
+	if(firstFixedHandle !=0 && GTK.gtk_widget_has_focus(firstFixedHandle)) {
+		if(event == SWT.FocusIn)sendFocusEvent(SWT.FocusIn);
+		else sendFocusEvent(SWT.FocusOut);
+	}
+}
+
+@Override
 long gtk_focus_out_event (long widget, long event) {
 	// widget could be disposed at this point
 	if (handle != 0) {
@@ -3953,13 +3997,32 @@ long gtk_focus_out_event (long widget, long event) {
 }
 
 @Override
+void gtk4_focus_leave_event(long controller, long event) {
+	super.gtk4_focus_leave_event(controller, event);
+
+	sendFocusEvent(SWT.FocusOut);
+}
+
+@Override
+boolean gtk4_key_press_event(long controller, int keyval, int keycode, int state, long event) {
+	if (!hasFocus()) return false;
+
+	if (translateMnemonic(keyval, event)) return true;
+	if (isDisposed()) return false;
+
+	if (filterKey(event)) return true;
+	if (isDisposed()) return false;
+
+	if (translateTraversal(event)) return true;
+	if (isDisposed()) return false;
+
+	return super.gtk4_key_press_event(controller, keyval, keycode, state, event);
+}
+
+@Override
 long gtk_key_press_event (long widget, long event) {
 	int [] eventKeyval = new int [1];
-	if (GTK.GTK4) {
-		eventKeyval[0] = GDK.gdk_key_event_get_keyval(event);
-	} else {
-		GDK.gdk_event_get_keyval(event, eventKeyval);
-	}
+	GDK.gdk_event_get_keyval(event, eventKeyval);
 
 	if (!hasFocus ()) {
 		/*
@@ -3969,7 +4032,7 @@ long gtk_key_press_event (long widget, long event) {
 		* and call filterKey() only.
 		*/
 		if (display.getActiveShell () == null) {
-			if (filterKey (eventKeyval[0], event)) return 1;
+			if (filterKey (event)) return 1;
 		}
 		return 0;
 	}
@@ -3977,7 +4040,7 @@ long gtk_key_press_event (long widget, long event) {
 	// widget could be disposed at this point
 	if (isDisposed ()) return 0;
 
-	if (filterKey (eventKeyval[0], event)) return 1;
+	if (filterKey (event)) return 1;
 	// widget could be disposed at this point
 	if (isDisposed ()) return 0;
 
@@ -3988,45 +4051,47 @@ long gtk_key_press_event (long widget, long event) {
 }
 
 @Override
+void gtk4_key_release_event(long controller, int keyval, int keycode, int state, long event) {
+	if (!hasFocus()) return;
+
+	long imContext = imHandle();
+	if (imContext != 0) {
+		GTK4.gtk_im_context_filter_keypress(imContext, event);
+	}
+
+	super.gtk4_key_release_event(controller, keyval, keycode, state, event);
+}
+
+@Override
 long gtk_key_release_event (long widget, long event) {
 	if (!hasFocus ()) return 0;
 	long imHandle = imHandle ();
 	if (imHandle != 0) {
-		if (GTK.GTK4) {
-			if (GTK4.gtk_im_context_filter_keypress(imHandle, event)) return 1;
-		} else {
-			if (GTK3.gtk_im_context_filter_keypress(imHandle, event)) return 1;
-		}
+		if (GTK3.gtk_im_context_filter_keypress(imHandle, event)) return 1;
 	}
 	return super.gtk_key_release_event (widget, event);
 }
 
 @Override
-long gtk_leave_notify_event (long widget, long event) {
-	if (GTK.GTK4) {
-		if (display.currentControl != this) return 0;
+void gtk4_leave_event(long controller, long event) {
+	if (display.currentControl != this) return;
 
-		display.removeMouseHoverTimeout (handle);
-		int result = 0;
-		if (sendLeaveNotify () || display.getCursorControl () == null) {
-			result = sendMouseEvent (SWT.MouseExit, 0, 0, 0, 0, false, 0) ? 0 : 1;
-			display.currentControl = null;
-		}
-		return result;
+	display.removeMouseHoverTimeout(handle);
+
+	if (sendLeaveNotify() || display.getCursorControl() == null) {
+		sendMouseEvent(SWT.MouseExit, 0, 0, 0, 0, false, 0);
 	}
+}
 
-
+@Override
+long gtk_leave_notify_event (long widget, long event) {
 	if (display.currentControl != this) return 0;
 	int [] state = new int [1];
+	GDK.gdk_event_get_state(event, state);
+
 	double [] eventX = new double [1];
 	double [] eventY = new double [1];
-	if (GTK.GTK4) {
-		state[0] = GDK.gdk_event_get_modifier_state(event);
-		GDK.gdk_event_get_position(event, eventX, eventY);
-	} else {
-		GDK.gdk_event_get_state(event, state);
-		GDK.gdk_event_get_coords(event, eventX, eventY);
-	}
+	GDK.gdk_event_get_coords(event, eventX, eventY);
 
 	int time = GDK.gdk_event_get_time(event);
 
@@ -4040,16 +4105,12 @@ long gtk_leave_notify_event (long widget, long event) {
 
 	GdkEventCrossing gdkEvent = new GdkEventCrossing ();
 	int [] crossingMode = new int[1];
-	if (GTK.GTK4) {
-		crossingMode[0] = GDK.gdk_crossing_event_get_mode(event);
-	} else {
-		OS.memmove(gdkEvent, event, GdkEventCrossing.sizeof);
-		crossingMode[0] = gdkEvent.mode;
-	}
+	GTK3.memmove(gdkEvent, event, GdkEventCrossing.sizeof);
+	crossingMode[0] = gdkEvent.mode;
 
 	display.removeMouseHoverTimeout (handle);
 	int result = 0;
-	if (sendLeaveNotify () || display.getCursorControl () == null) {
+	if (sendLeaveNotify() || display.getCursorControl () == null) {
 		if (crossingMode[0] != GDK.GDK_CROSSING_NORMAL && crossingMode[0] != GDK.GDK_CROSSING_UNGRAB) return 0;
 		if ((state[0] & (GDK.GDK_BUTTON1_MASK | GDK.GDK_BUTTON2_MASK | GDK.GDK_BUTTON3_MASK)) != 0) return 0;
 		result = sendMouseEvent (SWT.MouseExit, 0, time, eventRX[0], eventRY[0], false, state[0]) ? 0 : 1;
@@ -4081,31 +4142,50 @@ long gtk_mnemonic_activate (long widget, long arg1) {
 }
 
 @Override
+void gtk4_motion_event(long controller, double x, double y, long event) {
+	if (this == display.currentControl && (hooks(SWT.MouseHover) || filters(SWT.MouseHover))) {
+		display.addMouseHoverTimeout(handle);
+	}
+
+	int time = GDK.gdk_event_get_time(event);
+	int state = GDK.gdk_event_get_modifier_state(event);
+	boolean isHint = false;
+
+	if (this != display.currentControl) {
+		if (display.currentControl != null && !display.currentControl.isDisposed()) {
+			display.removeMouseHoverTimeout(display.currentControl.handle);
+			/*
+			 *  Note: for GTK4, the call to display.mapInPixels function was removed due to the
+			 *  inability to get the origin of surfaces. Testing needs to be done to see if
+			 *  the x, y, coordinates suffice.
+			 */
+			display.currentControl.sendMouseEvent(SWT.MouseExit, 0, time, x, y, isHint, state);
+		}
+		if (!isDisposed()) {
+			display.currentControl = this;
+			sendMouseEvent(SWT.MouseEnter, 0, time, x, y, isHint, state);
+		}
+	}
+
+	sendMouseEvent(SWT.MouseMove, 0, time, x, y, isHint, state);
+}
+
+@Override
 long gtk_motion_notify_event (long widget, long event) {
 	int result;
-	if (mouseDown) {
-		dragBegun = true;
-	}
 
 	double[] eventX = new double[1];
 	double[] eventY = new double[1];
-	if (GTK.GTK4) {
-		GDK.gdk_event_get_position(event, eventX, eventY);
-	} else {
-		GDK.gdk_event_get_coords(event, eventX, eventY);
-	}
+	GDK.gdk_event_get_coords(event, eventX, eventY);
 
 	lastInput.x = (int)eventX[0];
 	lastInput.y = (int)eventY[0];
 	if (containedInRegion(lastInput.x, lastInput.y)) return 0;
 
-	/*
-	 * Feature in GTK: DND detection for X.11 & Wayland support is done through motion notify event
-	 * instead of mouse click event. See Bug 503431.
-	 */
-	if (!OS.isX11()) { // Wayland
+	// See comment in #dragDetect()
+	if ((dragDetectionQueue != null) && OS.isWayland()) {
 		boolean dragging = false;
-		if ((state & DRAG_DETECT) != 0 && hooks (SWT.DragDetect)) {
+		if ((state & DRAG_DETECT) != 0 && wantDragDropDetection ()) {
 				boolean [] consume = new boolean [1];
 				if (dragDetect ((int) eventX[0], (int) eventY[0], true, true, consume)) {
 					dragging = true;
@@ -4158,7 +4238,7 @@ long gtk_motion_notify_event (long widget, long event) {
 		y = eventRY[0];
 
 		GdkEventMotion gdkEvent = new GdkEventMotion();
-		OS.memmove(gdkEvent, event, GdkEventMotion.sizeof);
+		GTK3.memmove(gdkEvent, event, GdkEventMotion.sizeof);
 		state[0] = gdkEvent.state;
 		isHint = gdkEvent.is_hint != 0;
 
@@ -4226,38 +4306,63 @@ long gtk_realize (long widget) {
 }
 
 @Override
+boolean gtk4_scroll_event(long controller, double dx, double dy, long event) {
+	boolean handled = false;
+
+	int time = GDK.gdk_event_get_time(event);
+	int state = GDK.gdk_event_get_modifier_state(event);
+
+	int direction = GDK.gdk_scroll_event_get_direction(event);
+	boolean discreteScrolling = direction != GDK.GDK_SCROLL_SMOOTH;
+
+	// Note about GTK4: Scroll events do not provide coordinates of the event (gdk_event_get_position returns Nan)
+	if (discreteScrolling) {
+		switch (direction) {
+			case GDK.GDK_SCROLL_UP:
+				return !sendMouseEvent(SWT.MouseWheel, 0, 3, SWT.SCROLL_LINE, true, time, 0, 0, false, state);
+			case GDK.GDK_SCROLL_DOWN:
+				return !sendMouseEvent(SWT.MouseWheel, 0, -3, SWT.SCROLL_LINE, true, time, 0, 0, false, state);
+			case GDK.GDK_SCROLL_LEFT:
+				return !sendMouseEvent(SWT.MouseHorizontalWheel, 0, 3, 0, true, time, 0, 0, false, state);
+			case GDK.GDK_SCROLL_RIGHT:
+				return !sendMouseEvent(SWT.MouseHorizontalWheel, 0, -3, 0, true, time, 0, 0, false, state);
+		}
+	} else {
+		double[] delta_x = new double[1], delta_y = new double [1];
+		GDK.gdk_scroll_event_get_deltas(event, delta_x, delta_y);
+
+		if (delta_x[0] != 0) {
+			handled = !sendMouseEvent(SWT.MouseHorizontalWheel, 0, (int)(-3 * delta_x[0]), 0, true, time, 0, 0, false, state);
+		}
+		if (delta_y[0] != 0) {
+			handled = !sendMouseEvent(SWT.MouseWheel, 0, (int)(-3 * delta_y[0]), SWT.SCROLL_LINE, true, time, 0, 0, false, state);
+		}
+
+		return handled;
+	}
+
+	return false;
+}
+
+@Override
 long gtk_scroll_event (long widget, long eventPtr) {
 	long result = 0;
+
 	double [] eventX = new double [1];
 	double [] eventY = new double [1];
+	GDK.gdk_event_get_coords(eventPtr, eventX, eventY);
+
 	int [] state = new int [1];
-	if (GTK.GTK4) {
-		// GTK4 Position returns NaN
-		state[0] = GDK.gdk_event_get_modifier_state(eventPtr);
-	} else {
-		GDK.gdk_event_get_coords(eventPtr, eventX, eventY);
-		GDK.gdk_event_get_state(eventPtr, state);
-	}
+	GDK.gdk_event_get_state(eventPtr, state);
 
 	double [] eventRX = new double[1];
 	double [] eventRY = new double[1];
-	if (GTK.GTK4) {
-		long root = GTK4.gtk_widget_get_root(widget);
-		GTK4.gtk_widget_translate_coordinates(widget, root, eventX[0], eventY[0], eventRX, eventRY);
-	} else {
-		GDK.gdk_event_get_root_coords(eventPtr, eventRX, eventRY);
-	}
+	GDK.gdk_event_get_root_coords(eventPtr, eventRX, eventRY);
 
 	int time = GDK.gdk_event_get_time(eventPtr);
 
 	int [] direction = new int[1];
-	boolean fetched;
-	if (GTK.GTK4) {
-		direction[0] = GDK.gdk_scroll_event_get_direction(eventPtr);
-		fetched = direction[0] != GDK.GDK_SCROLL_SMOOTH;
-	} else {
-		fetched = GDK.gdk_event_get_scroll_direction(eventPtr, direction);
-	}
+	boolean fetched = GDK.gdk_event_get_scroll_direction(eventPtr, direction);
 
 	lastInput.x = (int) eventX[0];
 	lastInput.y = (int) eventY[0];
@@ -4277,14 +4382,7 @@ long gtk_scroll_event (long widget, long eventPtr) {
 		}
 	} else {
 		double[] delta_x = new double[1], delta_y = new double [1];
-		boolean deltasAvailable;
-		if (GTK.GTK4) {
-			GDK.gdk_scroll_event_get_deltas(eventPtr, delta_x, delta_y);
-			// In GTK4, deltas is always available but zero when not GDK_SMOOTH_SCROLL
-			deltasAvailable = true;
-		} else {
-			deltasAvailable = GDK.gdk_event_get_scroll_deltas (eventPtr, delta_x, delta_y);
-		}
+		boolean deltasAvailable = GDK.gdk_event_get_scroll_deltas (eventPtr, delta_x, delta_y);
 
 		if (deltasAvailable) {
 			if (delta_x [0] != 0) {
@@ -4299,7 +4397,7 @@ long gtk_scroll_event (long widget, long eventPtr) {
 }
 
 @Override
-long gtk_show_help (long widget, long helpType) {
+long gtk3_show_help (long widget, long helpType) {
 	if (!hasFocus ()) return 0;
 	return sendHelpEvent (helpType) ? 1 : 0;
 }
@@ -4768,6 +4866,25 @@ void releaseWidget () {
 	}
 }
 
+@Override
+void destroyWidget() {
+	if (GTK.GTK4) {
+		// Remove widget from hierarchy  by removing it from parent container
+		if (parent != null) {
+			long currHandle = topHandle();
+			if(GTK.GTK_IS_WINDOW(currHandle)) {
+				GTK4.gtk_window_destroy(currHandle);
+			}
+			else {
+				OS.swt_fixed_remove(parent.parentingHandle(), fixedHandle);
+			}
+		}
+		releaseHandle();
+	} else {
+		super.destroyWidget();
+	}
+}
+
 /**
  * GTK3 only, do not call on GTK4.
  * @param window a GdkWindow
@@ -4779,7 +4896,24 @@ void restackWindow (long window, long sibling, boolean above) {
 	GDK.gdk_window_restack (window, sibling, above);
 }
 
+void flushQueueOnDnd() {
+	// Case where mouse motion triggered a DnD:
+	// Send only initial MouseDown but not the MouseMove events that were used
+	// to determine DnD threshold.
+	// This is to preserve backwards Cocoa/Win32 compatibility.
+	Event mouseDownEvent = dragDetectionQueue.getFirst();
+	mouseDownEvent.data = Boolean.valueOf(true); // force send MouseDown to avoid subsequent MouseMove before MouseDown.
+	dragDetectionQueue = null;
+	sendOrPost(SWT.MouseDown, mouseDownEvent);
+}
+
 boolean sendDragEvent (int button, int stateMask, int x, int y, boolean isStateMask) {
+	if (OS.isWayland() && dragDetectionQueue != null) {
+		// Flush events used to detect drag&drop just before sending `DragDetect` event.
+		// This is to maintain the same order of events as on other platforms.
+		flushQueueOnDnd();
+	}
+
 	Event event = new Event ();
 	event.button = button;
 	Rectangle eventRect = new Rectangle (x, y, 0, 0);
@@ -4922,7 +5056,7 @@ boolean sendMouseEvent (int type, int button, int count, int detail, boolean sen
 		 * event, similar to the way the caching logic does it when receiving a
 		 * MouseMove event. See bug 529126.
 		 */
-		if (!OS.isX11() && dragDetectionQueue != null) {
+		if (OS.isWayland() && dragDetectionQueue != null) {
 			/*
 			 * The first event in the queue will always be a MouseDown, as
 			 * the queue is only ever created if a MouseDown event is being cached.
@@ -4936,7 +5070,13 @@ boolean sendMouseEvent (int type, int button, int count, int detail, boolean sen
 				sendOrPost(SWT.MouseDown, mouseDownEvent);
 			}
 		}
-		return true;
+		/* This checks for Wayland, a previous MouseDown || MouseMove in the
+		 * dragDetectionQueue and it checks if the current event is MouseMove
+		 * This will prevent them from not being queued, which caused
+		 * Bug 576215 - [Wayland] Mouse events not received as on other platforms.
+		 * In x11 this will always return true as before.
+		 */
+		if( (OS.isX11() || (dragDetectionQueue == null) || (type != SWT.MouseMove)) ) return true;
 	}
 	Event event = new Event ();
 	event.time = time;
@@ -4954,7 +5094,8 @@ boolean sendMouseEvent (int type, int button, int count, int detail, boolean sen
 //			long surface = eventSurface ();
 //			GDK.gdk_surface_get_origin (surface, origin_x, origin_y);
 //			eventRect = new Rectangle ((int)x - origin_x [0], (int)y - origin_y [0], 0, 0);
-//			event.setBounds (DPIUtil.autoScaleDown (eventRect));
+			eventRect = new Rectangle ((int)x, (int)y, 0, 0);
+			event.setBounds (DPIUtil.autoScaleDown (eventRect));
 		} else {
 			long window = eventWindow ();
 			GDK.gdk_window_get_origin (window, origin_x, origin_y);
@@ -4967,7 +5108,6 @@ boolean sendMouseEvent (int type, int button, int count, int detail, boolean sen
 
 	/**
 	 * Bug 510446:
-	 * In the original gtk2 DnD architecture, Drag detection was done in mouseDown.
 	 * For Wayland support, Drag detection is now done in mouseMove (as does gtk internally).
 	 *
 	 * However, traditionally external widgets (e.g StyledText or non-SWT widgets) expect to
@@ -4980,29 +5120,28 @@ boolean sendMouseEvent (int type, int button, int count, int detail, boolean sen
 	 * - To ensure we follow 'send/post' contract as per parameter, we
 	 *   temporarily utilize event.data to hold send/post flag.
 	 *   There's also logic in place such that mouseDown/mouseMotion is always sent before mouseUp.
-	 * - On Gtk2, mouseMove is sent during DnD. On Gtk3x11 it's not due to hacky implementation of DnD.
+	 * - On Gtk3x11 it's not due to hacky implementation of DnD.
 	 *   On Wayland mouseMove is once again sent during DnD as per improved architecture.
 	 */
 	event.data = Boolean.valueOf(send);
-	if (!OS.isX11()) {
+	if (OS.isWayland()) {
 		if (type == SWT.MouseDown) {
-			// Delay MouseDown
-			dragDetectionQueue = new LinkedList<>();
-			dragDetectionQueue.add(event);
-			return true; // event never canceled as not yet sent.
+			if (wantDragDropDetection ()) {
+				// Delay MouseDown
+				dragDetectionQueue = new LinkedList<>();
+				dragDetectionQueue.add(event);
+				return true; // event never canceled as not yet sent.
+			}
 		} else {
 			if (dragDetectionQueue != null) {
 				switch (type) {
 				case SWT.MouseMove:
 					if (dragDetect (event.x, event.y, false, true, null)) {
-						// Case where mouse motion triggered a DnD:
-						// Send only initial MouseDown but not the MouseMove events that were used
-						// to determine DnD threshold.
-						// This is to preserve backwards Cocoa/Win32 compatibility.
-						Event mouseDownEvent = dragDetectionQueue.getFirst();
-						mouseDownEvent.data = Boolean.valueOf(true); // force send MouseDown to avoid subsequent MouseMove before MouseDown.
-						dragDetectionQueue = null;
-						sendOrPost(SWT.MouseDown, mouseDownEvent);
+						// Note that if drag&drop is initiated, `dragDetect()` will no longer return true,
+						// because GTK considers gesture to be complete and inactive. In this case, code
+						// in #sendDragEvent() will flush the queue. This code path is used in the case when
+						// someone is listening to `DragDetect` but decided not to initiate drag&drop.
+						flushQueueOnDnd();
 					} else {
 						dragDetectionQueue.add(event);
 					}
@@ -5209,21 +5348,6 @@ public void setBackgroundImage (Image image) {
 }
 
 void setBackgroundSurface (Image image) {
-	if (GTK.GTK_VERSION >= OS.VERSION(3, 22, 0)) {
-		// gdk_window_set_background_pattern() deprecated in GTK3.22+
-		return;
-	}
-
-	long window = GTK3.gtk_widget_get_window (paintHandle ());
-	if (window != 0) {
-		if (image.surface != 0) {
-			long pattern = Cairo.cairo_pattern_create_for_surface(image.surface);
-			if (pattern == 0) SWT.error(SWT.ERROR_NO_HANDLES);
-			Cairo.cairo_pattern_set_extend(pattern, Cairo.CAIRO_EXTEND_REPEAT);
-			GDK.gdk_window_set_background_pattern(window, pattern);
-			Cairo.cairo_pattern_destroy(pattern);
-		}
-	}
 }
 
 /**
@@ -5364,7 +5488,7 @@ public void setEnabled (boolean enabled) {
 			attributes.event_mask = (0xFFFFFFFF & ~OS.ExposureMask);
 			attributes.wclass = GDK.GDK_INPUT_ONLY;
 			attributes.window_type = GDK.GDK_WINDOW_CHILD;
-			enableWindow = GDK.gdk_window_new (window, attributes, GDK.GDK_WA_X | GDK.GDK_WA_Y);
+			enableWindow = GTK3.gdk_window_new (window, attributes, GDK.GDK_WA_X | GDK.GDK_WA_Y);
 			if (enableWindow != 0) {
 				GDK.gdk_window_set_user_data (enableWindow, parentHandle);
 				restackWindow (enableWindow, gtk_widget_get_window (topHandle), true);
@@ -5506,29 +5630,29 @@ void setForegroundGdkRGBA (long handle, GdkRGBA rgba) {
 
 void setInitialBounds () {
 	if ((state & ZERO_WIDTH) != 0 && (state & ZERO_HEIGHT) != 0) {
-		/*
-		* Feature in GTK.  On creation, each widget's allocation is
-		* initialized to a position of (-1, -1) until the widget is
-		* first sized.  The fix is to set the value to (0, 0) as
-		* expected by SWT.
-		*/
-		long topHandle = topHandle ();
-		GtkAllocation allocation = new GtkAllocation();
-		if ((parent.style & SWT.MIRRORED) != 0) {
-			allocation.x = parent.getClientWidth ();
-		} else {
-			allocation.x = 0;
-		}
-		allocation.y = 0;
-		if (mustBeVisibleOnInitBounds ()) {
-			GTK.gtk_widget_set_visible(topHandle, true);
-		}
-		if (GTK.GTK4) {
-			GTK.gtk_widget_size_allocate (topHandle, allocation, -1);
-		} else {
+		if (!GTK.GTK4) {
+			/*
+			* Feature in GTK.  On creation, each widget's allocation is
+			* initialized to a position of (-1, -1) until the widget is
+			* first sized.  The fix is to set the value to (0, 0) as
+			* expected by SWT.
+			*/
+			long topHandle = topHandle();
+
+			GtkAllocation allocation = new GtkAllocation();
+			if ((parent.style & SWT.MIRRORED) != 0) {
+				allocation.x = parent.getClientWidth();
+			} else {
+				allocation.x = 0;
+			}
+			allocation.y = 0;
+
+			if (mustBeVisibleOnInitBounds ()) {
+				GTK.gtk_widget_set_visible(topHandle, true);
+			}
 			// Prevent GTK+ allocation warnings, preferred size should be retrieved before setting allocation size.
 			GTK.gtk_widget_get_preferred_size(topHandle, null, null);
-			GTK.gtk_widget_size_allocate (topHandle, allocation);
+			GTK3.gtk_widget_size_allocate (topHandle, allocation);
 		}
 	} else {
 		resizeHandle (1, 1);
@@ -5715,7 +5839,6 @@ void setOrientation (boolean create) {
 /**
  * Sets the orientation of the receiver, which must be one
  * of the constants <code>SWT.LEFT_TO_RIGHT</code> or <code>SWT.RIGHT_TO_LEFT</code>.
- * <p>
  *
  * @param orientation new orientation style
  *
@@ -5779,8 +5902,11 @@ public boolean setParent (Composite parent) {
 	Menu [] menus = oldShell.findMenus (this);
 	if (oldShell != newShell || oldDecorations != newDecorations) {
 		fixChildren (newShell, oldShell, newDecorations, oldDecorations, menus);
-		newDecorations.fixAccelGroup ();
-		oldDecorations.fixAccelGroup ();
+
+		if (!GTK.GTK4) {
+			newDecorations.fixAccelGroup ();
+			oldDecorations.fixAccelGroup ();
+		}
 	}
 	long newParent = parent.parentingHandle();
 	gtk_widget_reparent(this, newParent);
@@ -5800,11 +5926,7 @@ public boolean setParent (Composite parent) {
 	allocation.y = y;
 	allocation.width = width;
 	allocation.height = height;
-	if (GTK.GTK4) {
-		GTK.gtk_widget_size_allocate (topHandle, allocation, -1);
-	} else {
-		GTK.gtk_widget_size_allocate (topHandle, allocation);
-	}
+	gtk_widget_size_allocate(topHandle, allocation, -1);
 	this.parent = parent;
 	setZOrder (null, false, true);
 	reskin (SWT.ALL);
@@ -5872,7 +5994,7 @@ public void setRedraw (boolean redraw) {
 					attributes.height = bounds.height;
 					attributes.event_mask = GDK.GDK_EXPOSURE_MASK;
 					attributes.window_type = GDK.GDK_WINDOW_CHILD;
-					redrawWindow = GDK.gdk_window_new (window, attributes, 0);
+					redrawWindow = GTK3.gdk_window_new (window, attributes, 0);
 					if (redrawWindow != 0) {
 						int mouseMask = GDK.GDK_BUTTON_PRESS_MASK | GDK.GDK_BUTTON_RELEASE_MASK |
 							GDK.GDK_ENTER_NOTIFY_MASK | GDK.GDK_LEAVE_NOTIFY_MASK |
@@ -5880,10 +6002,6 @@ public void setRedraw (boolean redraw) {
 							GDK.GDK_BUTTON_MOTION_MASK | GDK.GDK_BUTTON1_MOTION_MASK |
 							GDK.GDK_BUTTON2_MOTION_MASK | GDK.GDK_BUTTON3_MOTION_MASK;
 						GDK.gdk_window_set_events (window, GDK.gdk_window_get_events (window) & ~mouseMask);
-						// No gdk_surface_set_background_pattern() on GTK4.
-						if (GTK.GTK_VERSION < OS.VERSION(3, 22, 0)) {
-							GDK.gdk_window_set_background_pattern(redrawWindow, 0);
-						}
 						GDK.gdk_window_show (redrawWindow);
 					}
 				}
@@ -5954,15 +6072,16 @@ public void setTextDirection(int textDirection) {
  *    <li>ERROR_THREAD_INVALID_ACCESS - if not called from the thread that created the receiver</li>
  * </ul>
  */
-public void setToolTipText (String string) {
+public void setToolTipText(String string) {
 	checkWidget();
+
 	if (!Objects.equals(string, toolTipText)) {
 		toolTipText = string;
-		setToolTipText (_getShell (), string);
+		setToolTipText(_getShell(), string);
 	}
 }
 
-void setToolTipText (Shell shell, String newString) {
+void setToolTipText(Shell shell, String newString) {
 	/*
 	* Feature in GTK.  In order to prevent children widgets
 	* from inheriting their parent's tooltip, the tooltip is
@@ -5976,7 +6095,7 @@ void setToolTipText (Shell shell, String newString) {
 	* under the pointer).
 	*/
 	if (display.currentControl == this) {
-		shell.setToolTipText(shell.handle, newString);
+		setToolTipText(shell.handle, newString);
 	}
 }
 
@@ -6122,7 +6241,7 @@ void setZOrder (Control sibling, boolean above, boolean fixRelations, boolean fi
 				}
 			}
 			long redrawWindow = fixChildren ? parent.redrawWindow : 0;
-			if (!OS.isX11 () || (siblingWindow == 0 && (!above || redrawWindow == 0))) {
+			if (OS.isWayland () || (siblingWindow == 0 && (!above || redrawWindow == 0))) {
 				if (above) {
 					GDK.gdk_window_raise (window);
 					if (redrawWindow != 0) GDK.gdk_window_raise (redrawWindow);
@@ -6703,10 +6822,11 @@ boolean traverseMnemonic (char key) {
 public void update () {
 	checkWidget ();
 	update (false, true);
+
 }
 
 void update (boolean all, boolean flush) {
-//	checkWidget();
+	if(GTK.GTK4) GTK.gtk_widget_queue_draw(handle);
 	if (!GTK.gtk_widget_get_visible (topHandle ())) return;
 	if (!GTK.gtk_widget_get_realized (handle)) return;
 	long window = paintWindow ();

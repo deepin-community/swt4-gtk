@@ -24,71 +24,136 @@ IF "x.%SWT_BUILDDIR%"=="x." set "SWT_BUILDDIR=W:"
 echo SWT build dir: %SWT_BUILDDIR%
 
 @rem Specify VisualStudio Edition: 'Community', 'Enterprise', 'Professional' etc.
-IF "x.%MSVC_EDITION%"=="x." set "MSVC_EDITION=Community"
+IF "x.%MSVC_EDITION%"=="x." set "MSVC_EDITION=auto"
 
-@rem Specify VisualStudio Version: '2017' or newer '2019'
-IF "x.%MSVC_VERSION%"=="x." set "MSVC_VERSION=2019"
+@rem Specify VisualStudio Version: '2022', '2019', '2017' etc.
+IF "x.%MSVC_VERSION%"=="x." set "MSVC_VERSION=auto"
 
-IF "x.%MSVC_HOME%"=="x." set "MSVC_HOME=%SWT_BUILDDIR%\Microsoft\Visual Studio\%MSVC_VERSION%\"
-IF NOT EXIST "%MSVC_HOME%" set "MSVC_HOME=%ProgramFiles(x86)%\Microsoft Visual Studio\%MSVC_VERSION%\%MSVC_EDITION%"
-IF EXIST "%MSVC_HOME%" (
-	echo "Microsoft Visual Studio %MSVC_VERSION% dir: %MSVC_HOME%"
+@rem Search for a usable Visual Studio
+@rem ---------------------------------
+IF "%MSVC_HOME%"=="" CALL :ECHO "'MSVC_HOME' was not provided, auto-searching for Visual Studio..."
+@rem Bug 572308: Path used on older SWT build machines
+IF "%MSVC_HOME%"=="" CALL :FindVisualStudio "%SWT_BUILDDIR%\Microsoft\Visual Studio\$MSVC_VERSION$"
+@rem Bug 574007: Path used on Azure build machines
+IF "%MSVC_HOME%"=="" CALL :FindVisualStudio "%ProgramFiles(x86)%\Microsoft Visual Studio\$MSVC_VERSION$\BuildTools"
+@rem Bug 578519: Common installation paths; VisualStudio is installed in x64 ProgramFiles since VS2022
+IF "%MSVC_HOME%"=="" CALL :FindVisualStudio      "%ProgramFiles%\Microsoft Visual Studio\$MSVC_VERSION$\$MSVC_EDITION$"
+@rem Bug 578519: Common installation paths; VisualStudio is installed in x86 ProgramFiles before VS2022
+IF "%MSVC_HOME%"=="" CALL :FindVisualStudio "%ProgramFiles(x86)%\Microsoft Visual Studio\$MSVC_VERSION$\$MSVC_EDITION$"
+@rem Report
+IF NOT EXIST "%MSVC_HOME%" (
+	CALL :ECHO "WARNING: Microsoft Visual Studio was not found (for edition=%MSVC_EDITION% version=%MSVC_VERSION%)"
+    CALL :ECHO "         Refer steps for SWT Windows native setup: https://www.eclipse.org/swt/swt_win_native.php"
 ) ELSE (
-	echo "WARNING: Microsoft Visual Studio %MSVC_VERSION% was not found."
+	CALL :ECHO "MSVC_HOME: %MSVC_HOME%"
 )
 
-IF "x.%1"=="x.x86" GOTO X86
-IF "x.%1"=="x.x86_64" GOTO X86_64
-
-:X86
-IF "x.%OUTPUT_DIR%"=="x." set OUTPUT_DIR=..\..\..\org.eclipse.swt.win32.win32.x86
-IF "x.%SWT_JAVA_HOME%"=="x." set "SWT_JAVA_HOME=%SWT_BUILDDIR%\Java\Oracle\jdk1.8.0-latest\x86"
-IF "x.%SWT_JAVA_HOME%"=="x." (
-    echo "WARNING: x86 Java JDK not found. Please set SWT_JAVA_HOME to your JDK directory."
-) ELSE (
-    echo "SWT_JAVA_HOME x86: %SWT_JAVA_HOME%"
+@rem Check for a usable JDK
+IF "%SWT_JAVA_HOME%"=="" CALL :ECHO "'SWT_JAVA_HOME' was not provided"
+IF NOT EXIST "%SWT_JAVA_HOME%" (
+    CALL :ECHO "WARNING: x64 Java JDK not found. Please set SWT_JAVA_HOME to the JDK directory containing the intended JDK native headers."
 )
-call "%MSVC_HOME%\VC\Auxiliary\Build\vcvarsall.bat" x86
-IF x.%1==x.x86 shift
-GOTO MAKE
 
-:X86_64
+@rem -----------------------
+IF NOT "x.%1"=="x.x86_64" (
+	CALL :ECHO "ERROR: 32-bit builds are no longer supported."
+	EXIT /B 1
+)
+
 set PROCESSOR_ARCHITECTURE=AMD64
 IF "x.%OUTPUT_DIR%"=="x." set OUTPUT_DIR=..\..\..\org.eclipse.swt.win32.win32.x86_64
 
-IF "x.%SWT_JAVA_HOME%"=="x." (
-    IF exist "%SWT_BUILDDIR%\Java\Oracle\jdk1.8.0-latest\x64" (
-        set "SWT_JAVA_HOME=%SWT_BUILDDIR%\Java\Oracle\jdk1.8.0-latest\x64"
-    ) ELSE (
-        IF exist "C:\Program Files\Java\jdk*" (
-            echo "Found Java in C:\Program Files\Java\jdk, automatically setting SWT_JAVA_HOME to latest java"
-            for /d %%i in ("\Program Files\Java\jdk*") do set SWT_JAVA_HOME=%%i
-        )
-    )
-)
-IF "x.%SWT_JAVA_HOME%"=="x." (
-    echo "WARNING: x64 Java JDK not found. Please set SWT_JAVA_HOME to your JDK directory."
-) ELSE (
-    echo "SWT_JAVA_HOME x64: %SWT_JAVA_HOME%"
-)
-
 set CFLAGS=-DJNI64
-IF "x.%CHROMIUM_RUST_DIR%"=="x." (
-    set CHROMIUM_HEADERS=chromium_subp\cef_win32
-    set CHROMIUM_TARGET=chromium_swt\target\release
-) ELSE (
-    set CHROMIUM_HEADERS=%CHROMIUM_RUST_DIR%\chromium_subp\cef_win32
-    set CHROMIUM_TARGET=%CHROMIUM_RUST_DIR%\chromium_swt\target\release
-)
 call "%MSVC_HOME%\VC\Auxiliary\Build\vcvarsall.bat" x64
 shift
-GOTO MAKE
 
-:MAKE
 @rem if call to vcvarsall.bat (which sets up environment) silently fails, then provide advice to user.
 WHERE cl
 if %ERRORLEVEL% NEQ 0 (
-    echo "WARNING: cl (Microsoft C compiler) not found on path. Please install Microsoft Visual Studio."
-    echo "     If already installed, try launching eclipse from the 'Developer Command Prompt for VS' "
+    CALL :ECHO "ERROR: cl (Microsoft C compiler) not found on path. Please install Microsoft Visual Studio."
+    CALL :ECHO "         If already installed, try launching eclipse from the 'Developer Command Prompt for VS'"
+    CALL :ECHO "         Refer steps for SWT Windows native setup: https://www.eclipse.org/swt/swt_win_native.php"
+    CALL :ECHO "ERROR: exit 1"	
+    EXIT 1
 )
 nmake -f make_win32.mak %1 %2 %3 %4 %5 %6 %7 %8 %9
+IF ERRORLEVEL 1 (	
+    CALL :ECHO "ERROR: exit 1"	
+    EXIT 1
+)
+GOTO :EOF
+
+@rem Find Visual Studio
+@rem %1 = path template with '$MSVC_VERSION$' and '$MSVC_EDITION$' tokens
+:FindVisualStudio
+	@rem Early return if already found
+	IF NOT "%MSVC_HOME%"=="" GOTO :EOF
+
+	IF "%MSVC_VERSION%"=="auto" (
+		CALL :FindVisualStudio2 "%~1" "2022"
+		CALL :FindVisualStudio2 "%~1" "2019"
+		CALL :FindVisualStudio2 "%~1" "2017"
+	) ELSE (
+		CALL :FindVisualStudio2 "%~1" "%MSVC_VERSION%"
+	)
+GOTO :EOF
+
+@rem Find Visual Studio
+@rem %1 = path template with '$MSVC_VERSION$' and '$MSVC_EDITION$' tokens
+@rem %2 = value for '$MSVC_VERSION$'
+:FindVisualStudio2
+	@rem Early return if already found
+	IF NOT "%MSVC_HOME%"=="" GOTO :EOF
+
+	IF "%MSVC_EDITION%"=="auto" (
+		CALL :FindVisualStudio3 "%~1" "%~2" "Community"
+		CALL :FindVisualStudio3 "%~1" "%~2" "Enterprise"
+		CALL :FindVisualStudio3 "%~1" "%~2" "Professional"
+	) ELSE (
+		CALL :FindVisualStudio3 "%~1" "%~2" "%MSVC_EDITION%"
+	)
+GOTO :EOF
+
+@rem Find Visual Studio
+@rem %1 = path template with '$MSVC_VERSION$' and '$MSVC_EDITION$' tokens
+@rem %2 = value for '$MSVC_VERSION$'
+@rem %3 = value for '$MSVC_EDITION$'
+:FindVisualStudio3
+	@rem Early return if already found
+	IF NOT "%MSVC_HOME%"=="" GOTO :EOF
+
+	SET "TESTED_VS_PATH=%~1"
+	@rem Substitute '$MSVC_VERSION$' and '$MSVC_EDITION$'
+	CALL SET "TESTED_VS_PATH=%%TESTED_VS_PATH:$MSVC_VERSION$=%~2%%"
+	CALL SET "TESTED_VS_PATH=%%TESTED_VS_PATH:$MSVC_EDITION$=%~3%%"
+
+	@rem If the folder isn't there, then skip it without printing errors
+	IF NOT EXIST "%TESTED_VS_PATH%" GOTO :EOF
+
+	@rem Try this path
+	CALL :TryToUseVisualStudio "%TESTED_VS_PATH%"
+GOTO :EOF
+
+@rem Test Visual Studio and set '%MSVC_HOME%' on success
+@rem %1 = tested path
+:TryToUseVisualStudio
+	SET "TESTED_VS_PATH=%~1"
+	IF NOT EXIST "%TESTED_VS_PATH%\VC\Auxiliary\Build\vcvarsall.bat" (
+		CALL :ECHO "-- VisualStudio '%TESTED_VS_PATH%' is bad: 'vcvarsall.bat' not found"
+		GOTO :EOF
+	)
+	CALL :ECHO "-- VisualStudio '%TESTED_VS_PATH%' looks good, selecting it"
+	SET "MSVC_HOME=%TESTED_VS_PATH%"
+GOTO :EOF
+
+@rem Regular ECHO has trouble with special characters such as ().
+@rem At the same time, if its argument is quoted, the quotes are printed literally.
+@rem The workaround is to escape all special characters with ^
+:ECHO
+SET "ECHO_STRING=%~1"
+SET "ECHO_STRING=%ECHO_STRING:<=^<%"
+SET "ECHO_STRING=%ECHO_STRING:>=^>%"
+SET "ECHO_STRING=%ECHO_STRING:(=^(%"
+SET "ECHO_STRING=%ECHO_STRING:)=^)%"
+ECHO %ECHO_STRING%
+GOTO :EOF

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2020 IBM Corporation and others.
+ * Copyright (c) 2000, 2021 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -723,19 +723,17 @@ void createHandle () {
 }
 
 void checkGesture () {
-	if (OS.WIN32_VERSION >= OS.VERSION (6, 1)) {
-		int value = OS.GetSystemMetrics (OS.SM_DIGITIZER);
-		if ((value & (OS.NID_READY | OS.NID_MULTI_INPUT)) != 0) {
-			/*
-			 * Feature in Windows 7: All gestures are enabled by default except GID_ROTATE.
-			 * Enable it explicitly by calling SetGestureConfig.
-			 */
-			GESTURECONFIG config = new GESTURECONFIG();
-			config.dwID = OS.GID_ROTATE;
-			config.dwWant = 1;
-			config.dwBlock = 0;
-			OS.SetGestureConfig (handle, 0, 1, config, GESTURECONFIG.sizeof);
-		}
+	int value = OS.GetSystemMetrics (OS.SM_DIGITIZER);
+	if ((value & (OS.NID_READY | OS.NID_MULTI_INPUT)) != 0) {
+		/*
+		 * Feature in Windows 7: All gestures are enabled by default except GID_ROTATE.
+		 * Enable it explicitly by calling SetGestureConfig.
+		 */
+		GESTURECONFIG config = new GESTURECONFIG();
+		config.dwID = OS.GID_ROTATE;
+		config.dwWant = 1;
+		config.dwBlock = 0;
+		OS.SetGestureConfig (handle, 0, 1, config, GESTURECONFIG.sizeof);
 	}
 }
 
@@ -973,13 +971,6 @@ void maybeEnableDarkSystemTheme() {
 	maybeEnableDarkSystemTheme(handle);
 }
 
-void maybeEnableDarkSystemTheme(long handle) {
-	if (display.useDarkModeExplorerTheme) {
-		OS.AllowDarkModeForWindow(handle, true);
-		OS.SetWindowTheme(handle, Display.EXPLORER, null);
-	}
-}
-
 void enableWidget (boolean enabled) {
 	OS.EnableWindow (handle, enabled);
 }
@@ -1054,15 +1045,8 @@ void fixChildren (Shell newShell, Shell oldShell, Decorations newDecorations, De
 void fixFocus (Control focusControl) {
 	Shell shell = getShell ();
 	Control control = this;
-	Display display = this.display;
-	boolean oldFixFocus = display.fixFocus;
-	display.fixFocus = true;
-	try {
-		while (control != shell && (control = control.parent) != null) {
-				if (control.setFocus ()) return;
-		}
-	} finally {
-		display.fixFocus = oldFixFocus;
+	while (control != shell && (control = control.parent) != null) {
+			if (control.setFocus ()) return;
 	}
 	shell.setSavedFocus (focusControl);
 	OS.SetFocus (0);
@@ -1087,6 +1071,7 @@ public boolean forceFocus () {
 	Decorations shell = menuShell ();
 	shell.setSavedFocus (this);
 	if (!isEnabled () || !isVisible () || !isActive ()) return false;
+	if (display.getActiveShell() != shell && !Display.isActivateShellOnForceFocus()) return false;
 	if (isFocusControl ()) return true;
 	shell.setSavedFocus (null);
 	/*
@@ -3620,7 +3605,6 @@ public void setMenu (Menu menu) {
 /**
  * Sets the orientation of the receiver, which must be one
  * of the constants <code>SWT.LEFT_TO_RIGHT</code> or <code>SWT.RIGHT_TO_LEFT</code>.
- * <p>
  *
  * @param orientation new orientation style
  *
@@ -4135,7 +4119,7 @@ boolean translateMnemonic (MSG msg) {
 	Decorations shell = menuShell ();
 	if (shell.isVisible () && shell.isEnabled ()) {
 		display.lastAscii = (int)msg.wParam;
-		display.lastNull = display.lastDead = false;
+		display.lastDead = false;
 		Event event = new Event ();
 		event.detail = SWT.TRAVERSE_MNEMONIC;
 		if (setKeyState (event, SWT.Traverse, msg.wParam, msg.lParam)) {
@@ -4248,7 +4232,7 @@ boolean translateTraversal (MSG msg) {
 	display.lastKey = lastKey;
 	display.lastAscii = lastAscii;
 	display.lastVirtual = lastVirtual;
-	display.lastNull = display.lastDead = false;
+	display.lastDead = false;
 	if (!setKeyState (event, SWT.Traverse, msg.wParam, msg.lParam)) return false;
 	Shell shell = getShell ();
 	Control control = this;

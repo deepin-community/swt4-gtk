@@ -19,6 +19,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
@@ -34,10 +35,12 @@ import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.graphics.Rectangle;
 import org.eclipse.swt.graphics.Region;
 import org.eclipse.swt.layout.FillLayout;
+import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Event;
 import org.eclipse.swt.widgets.Shell;
+import org.eclipse.swt.widgets.Text;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -57,7 +60,7 @@ public void setUp() {
 	super.setUp();
 	testShell = new Shell(shell, SWT.NULL);
 	setWidget(shell);
-	assertTrue(testShell.getParent() == shell);
+	assertEquals(shell, testShell.getParent());
 }
 
 @Test
@@ -75,7 +78,7 @@ public void test_ConstructorI() {
 	Shell newShell;
 	for (int i = 0; i < cases.length; i++) {
 		newShell = new Shell(cases[i]);
-		assertTrue("a " +i, newShell.getDisplay() == shell.getDisplay());
+		assertEquals("a " + i, shell.getDisplay(), newShell.getDisplay());
 		assertNotEquals(0, newShell.getStyle() & cases[i]);
 		newShell.dispose();
 	}
@@ -85,7 +88,7 @@ public void test_ConstructorI() {
 public void test_ConstructorLorg_eclipse_swt_widgets_Display() {
 	Display display = shell.getDisplay();
 	Shell newShell = new Shell(display);
-	assertTrue("a: ", newShell.getDisplay() == display);
+	assertEquals("a: ", display, newShell.getDisplay());
 	newShell.dispose();
 }
 
@@ -97,7 +100,7 @@ public void test_ConstructorLorg_eclipse_swt_widgets_DisplayI() {
 	Display display = shell.getDisplay();
 	for (int i = 0; i < cases.length; i++) {
 		newShell = new Shell(display, cases[i]);
-		assertTrue("a " +i, newShell.getDisplay() == shell.getDisplay());
+		assertEquals("a " + i, shell.getDisplay(), newShell.getDisplay());
 		newShell.dispose();
 	}
 }
@@ -105,7 +108,7 @@ public void test_ConstructorLorg_eclipse_swt_widgets_DisplayI() {
 @Test
 public void test_ConstructorLorg_eclipse_swt_widgets_Shell() {
 	Shell newShell = new Shell(shell);
-	assertTrue("a: ", newShell.getParent() == shell);
+	assertEquals("a: ", shell, newShell.getParent());
 	newShell.dispose();
 }
 
@@ -117,7 +120,7 @@ public void test_ConstructorLorg_eclipse_swt_widgets_ShellI() {
 	Shell newShell;
 	for (int i = 0; i < cases.length; i++) {
 		newShell = new Shell(shell, cases[i]);
-		assertTrue("a " +i, newShell.getParent() == shell);
+		assertEquals("a: " + i, shell, newShell.getParent());
 		newShell.dispose();
 	}
 }
@@ -455,29 +458,29 @@ public void test_getImeInputMode() {
 @Test
 public void test_getLocation() {
 	shell.setLocation(10,15);
-	assertTrue(":a:", shell.getLocation().x == 10);
-	assertTrue(":b:", shell.getLocation().y == 15);
+	assertEquals(":a:", 10, shell.getLocation().x);
+	assertEquals(":b:", 15, shell.getLocation().y);
 }
 
 @Override
 @Test
 public void test_getShell() {
-	assertTrue(":a:", shell.getShell()==shell);
+	assertEquals(":a:", shell, shell.getShell());
 	Shell shell_1 = new Shell(shell);
-	assertTrue(":b:", shell_1.getShell()== shell_1);
+	assertEquals(":b:", shell_1, shell_1.getShell());
 	shell_1.dispose();
 }
 
 @Test
 public void test_getShells() {
 	int num = shell.getShells().length;
-	assertTrue(":a:", num == 1);
+	assertEquals(":a:", 1, num);
 	Shell shell_1 = new Shell(shell);
 	num = shell.getShells().length;
-	assertTrue(":b:", num == 2);
+	assertEquals(":b:", 2, num);
 	shell_1.dispose();
 	num = shell.getShells().length;
-	assertTrue(":c:", num == 1);
+	assertEquals(":c:", 1, num);
 }
 
 @Override
@@ -554,7 +557,7 @@ public void test_setEnabledZ() {
 @Test
 public void test_setImeInputModeI() {
 	shell.setImeInputMode(SWT.NONE);
-	assertTrue(":a:", shell.getImeInputMode() == SWT.NONE);
+	assertEquals(":a:", SWT.NONE, shell.getImeInputMode());
 }
 
 @Override
@@ -573,7 +576,7 @@ public void test_setVisibleZ() {
 public void test_getParent () {
 	// overriding Control.test_getParent
 	assertNull(shell.getParent());
-	assertTrue(testShell.getParent() == shell);
+	assertEquals(shell, testShell.getParent());
 }
 
 @Test
@@ -724,7 +727,7 @@ public void a_test_setRegion() {
 	Shell shell2 = new Shell(display, SWT.NO_TRIM);
 	assertNull(":d:", shell2.getRegion());
 	shell2.setRegion(region);
-	assertTrue(":e:", shell2.getRegion().handle == region.handle);
+	assertEquals(":e:", region.handle, shell2.getRegion().handle);
 	region.dispose();
 	assertTrue(":f:", shell2.getRegion().isDisposed());
 	shell2.setRegion(null);
@@ -759,7 +762,7 @@ public void test_setSizeII() {
 public void test_setSizeCustomResize() {
 	/*
 	 * Bug 319612: test the case where Shells with SWT.RESIZE and SWT.ON_TOP
-	 * were shrinking in size. Only applicable to GTK (both GTK2 and GTK3).
+	 * were shrinking in size. Only applicable to GTK.
 	 */
 	if (SwtTestUtil.isGTK) {
 		Shell testShell = new Shell (shell, SWT.RESIZE | SWT.ON_TOP);
@@ -921,4 +924,79 @@ public void test_bug558652_scrollBarNPE() {
 	}
 }
 
+@Test
+public void test_Issue450_NoShellActivateOnSetFocus() {
+	final String key = "org.eclipse.swt.internal.activateShellOnForceFocus";
+	final String prevKey = System.getProperty(key, null);
+	System.setProperty(key, "false");
+	try {
+		Display display = shell.getDisplay();
+
+		// First shell
+		final Shell shell1 = new Shell(shell);
+		shell1.setText("shell1");
+		shell1.setLayout(new GridLayout()); // without layout the text controls will have zero size
+		final Text text11 = new Text(shell1, SWT.BORDER | SWT.SINGLE);
+		final Text text12 = new Text(shell1, SWT.BORDER | SWT.SINGLE);
+
+		// Second shell
+		final Shell shell2 = new Shell(shell);
+		shell2.setText("shell2");
+		shell2.setLayout(new GridLayout()); // without layout the text controls will have zero size
+		final Text text21 = new Text(shell2, SWT.BORDER | SWT.SINGLE);
+		final Text text22 = new Text(shell2, SWT.BORDER | SWT.SINGLE);
+
+		// System.out.println("open 1st shell");
+		SwtTestUtil.waitShellActivate(shell1::open, shell1);
+		assertSame("expecting the 1st shell to be activated", display.getActiveShell(), shell1);
+		assertTrue("expecting the 1st text field to be focused in the 1st shell", text11.isFocusControl());
+
+		// System.out.println("open 2nd shell");
+		SwtTestUtil.waitShellActivate(shell2::open, shell2);
+		assertSame("expecting the 2nd shell to be activated", display.getActiveShell(), shell2);
+		assertTrue("expecting the 1st text field in 2nd shell to be focused", text21.isFocusControl());
+
+		// System.out.println("setting focus to 2nd text field in 1st (unactivated) shell");
+		text12.setFocus();
+		assertSame("expecting the 2nd shell to remain activated", display.getActiveShell(), shell2);
+
+		// System.out.println("activating 1st shell");
+		// Fails here for Linux (21.04+ or Manjaro starting ~July 2023)? Check Bug 575712
+		// workaround: set env-var GDK_BACKEND=x11
+		SwtTestUtil.waitShellActivate(shell1::setActive, shell1);
+		assertSame("expecting the 1st shell to be activated", display.getActiveShell(), shell1);
+		assertTrue("expecting the the 1st shell to have remembered the previous setFocus and with the shell activation setting it to the 2nd text field", text12.isFocusControl());
+
+		// System.out.println("disposing 1st shell");
+		SwtTestUtil.waitShellActivate(
+			() -> {
+				shell1.dispose();
+				// on macOS, disposing a Shell sometimes doesn't activate the other Shell.
+				// Not reproducible on my machine. Not reproducible on GitHub builder.
+				// Only seems to occur on Eclipse builder, not sure what's different there.
+				// Anyways, this is out of scope of this test, so just ask to activate.
+				if (SwtTestUtil.isCocoa) shell2.forceActive();
+			},
+			shell2
+		);
+		assertSame("expecting the 2nd shell to be activated after the 1st, active has been disposed", display.getActiveShell(), shell2);
+		assertTrue("expecting the 1st text field in the 2nd shell to still have the focus because it hasn't been changed", text21.isFocusControl());
+
+		// System.out.println("setting the focus to the 2nd text field");
+		text22.setFocus();
+		assertSame("expecting the 2nd shell to remain activated", display.getActiveShell(), shell2);
+		assertTrue("expecting the 2nd text field to have received the focus", text22.isFocusControl());
+
+		// System.out.println("disposing the 2nd shell, too");
+		shell2.dispose();
+	}
+	finally {
+		if (prevKey != null) {
+			System.setProperty(key, prevKey);
+		}
+		else {
+			System.getProperties().remove(key);
+		}
+	}
+}
 }

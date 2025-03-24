@@ -14,6 +14,8 @@
 package org.eclipse.swt.dnd;
 
 
+import org.eclipse.swt.*;
+import org.eclipse.swt.graphics.*;
 import org.eclipse.swt.internal.*;
 import org.eclipse.swt.internal.gtk.*;
 import org.eclipse.swt.internal.gtk3.*;
@@ -93,10 +95,10 @@ long clearFunc(long clipboard,long user_data_or_owner){
 void dispose () {
 	if (display == null) return;
 	if (activeClipboard != null) {
-		GTK3.gtk_clipboard_store(Clipboard.GTKCLIPBOARD);
+		if(!GTK.GTK4) GTK3.gtk_clipboard_store(Clipboard.GTKCLIPBOARD);
 	}
 	if (activePrimaryClipboard != null) {
-		GTK3.gtk_clipboard_store(Clipboard.GTKPRIMARYCLIPBOARD);
+		if(!GTK.GTK4) GTK3.gtk_clipboard_store(Clipboard.GTKPRIMARYCLIPBOARD);
 	}
 	display = null;
 	if (getFunc != null ) getFunc.dispose();
@@ -146,6 +148,9 @@ long getFunc(long clipboard, long selection_data, long info, long user_data_or_o
 }
 
 boolean setData(Clipboard owner, Object[] data, Transfer[] dataTypes, int clipboards) {
+
+	if(GTK.GTK4) return setData_gtk4(owner, data, dataTypes, clipboards);
+
 	GtkTargetEntry[] entries = new  GtkTargetEntry [0];
 	long pTargetsList = 0;
 	try {
@@ -170,7 +175,7 @@ boolean setData(Clipboard owner, Object[] data, Transfer[] dataTypes, int clipbo
 		pTargetsList = OS.g_malloc(GtkTargetEntry.sizeof * entries.length);
 		int offset = 0;
 		for (int i = 0; i < entries.length; i++) {
-			OS.memmove(pTargetsList + offset, entries[i], GtkTargetEntry.sizeof);
+			GTK3.memmove(pTargetsList + offset, entries[i], GtkTargetEntry.sizeof);
 			offset += GtkTargetEntry.sizeof;
 		}
 		if ((clipboards & DND.CLIPBOARD) != 0) {
@@ -213,5 +218,67 @@ boolean setData(Clipboard owner, Object[] data, Transfer[] dataTypes, int clipbo
 		}
 		if (pTargetsList != 0) OS.g_free(pTargetsList);
 	}
+}
+
+private boolean setData_gtk4(Clipboard owner, Object[] data, Transfer[] dataTypes, int clipboards) {
+	boolean result = false;
+	long [] providers = new long[0];
+	for (int i = 0; i < dataTypes.length; i++) {
+		Transfer transfer = dataTypes[i];
+		String[] typeNames = transfer.getTypeNames();
+		//Build the GdkContentProvider for each and store in array
+		long provider = setProviderFromType(typeNames[0], data[i]);
+		if(provider != 0) {
+			long[] tmp = new long [providers.length + 1];
+			System.arraycopy(providers, 0, tmp, 0, providers.length);
+			tmp[providers.length] = provider;
+			providers = tmp;
+		}
+	}
+	//Build the GdkContentProvider Union
+	if (providers.length == 0) return false;
+	long union = GTK4.gdk_content_provider_new_union(providers, providers.length);
+
+	if ((clipboards & DND.CLIPBOARD) != 0){
+		clipboardData = data;
+		clipboardDataTypes = dataTypes;
+		result = GTK4.gdk_clipboard_set_content(Clipboard.GTKCLIPBOARD, union);
+		activeClipboard = owner;
+	}
+	return result;
+}
+
+private long setProviderFromType(String string, Object data) {
+	long provider = 0;
+
+	if (data == null ) SWT.error(SWT.ERROR_NULL_ARGUMENT);
+	else {
+		if(string.equals("text/plain") || string.equals("text/rtf")) {
+			long value = OS.g_malloc (OS.GValue_sizeof());
+			C.memset (value, 0, OS.GValue_sizeof ());
+			OS.g_value_init(value, OS.G_TYPE_STRING());
+			OS.g_value_set_string(value, Converter.javaStringToCString((String)data));
+			provider = GTK4.gdk_content_provider_new_for_value(value);
+		}
+		if(string.equals("PIXBUF")) {
+			if(!(data instanceof ImageData)) DND.error(DND.ERROR_INVALID_DATA);
+			ImageData imgData = (ImageData)data;
+			Image image = new Image(Display.getCurrent(), imgData);
+			long pixbuf = ImageList.createPixbuf(image);
+			if (pixbuf != 0) {
+				provider = GTK4.gdk_content_provider_new_typed(GDK.GDK_TYPE_PIXBUF(), pixbuf);
+			}
+			image.dispose();
+		}
+		if(string.equals("text/html")) {
+			long value = OS.g_malloc (OS.GValue_sizeof());
+			C.memset (value, 0, OS.GValue_sizeof ());
+			OS.g_value_init(value, OS.G_TYPE_STRING());
+			OS.g_value_set_string(value, Converter.javaStringToCString((String)data));
+			provider = GTK4.gdk_content_provider_new_for_value(value);
+		}
+
+	}
+	return provider;
 }
 }

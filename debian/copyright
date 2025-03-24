@@ -1,7 +1,8 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0
 Upstream-Name: SWT
 Upstream-Contact: The Eclipse Foundation <platform-swt-dev@eclipse.org>
-Source: http://www.eclipse.org/swt/
+Source: https://github.com/eclipse-platform/eclipse.platform.swt
+Files-Excluded: .gitattributes
 
 Files:     *
 Copyright: 2000-2021, IBM Corporation and others

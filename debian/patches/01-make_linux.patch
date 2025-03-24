@@ -1,6 +1,6 @@
 --- a/bundles/org.eclipse.swt/Eclipse SWT PI/gtk/library/make_linux.mak	
 +++ b/bundles/org.eclipse.swt/Eclipse SWT PI/gtk/library/make_linux.mak	
-@@ -75,7 +75,7 @@ ATKCFLAGS = `pkg-config --cflags atk gtk+-$(GTK_VERSION) gtk+-unix-print-$(GTK_V
+@@ -71,12 +71,13 @@
  endif
  
  AWT_LFLAGS = -shared ${SWT_LFLAGS} 
@@ -9,17 +9,15 @@
  
  ATKLIBS = `pkg-config --libs-only-L atk` -latk-1.0 
  
-@@ -84,6 +84,7 @@ GLXLIBS = -lGL -lGLU -lm
- # Uncomment for Native Stats tool
- #NATIVE_STATS = -DNATIVE_STATS
+ GLXLIBS = -lGL -lGLU -lm
  
 +JAVA_HOME=/usr/lib/jvm/default-java
  WEBKITLIBS = `pkg-config --libs-only-l gio-2.0`
  WEBKITCFLAGS = `pkg-config --cflags gio-2.0`
  
-@@ -122,7 +123,9 @@ CFLAGS := $(CFLAGS) \
- 		-I$(JAVA_HOME)/include \
- 		-I$(JAVA_HOME)/include/linux \
+@@ -107,7 +108,9 @@
+ 		-I$(SWT_JAVA_HOME)/include \
+ 		-I$(SWT_JAVA_HOME)/include/linux \
  		${SWT_PTR_CFLAGS}
 -LFLAGS = -shared -fPIC ${SWT_LFLAGS}
 +LFLAGS += $(DEB_LDFLAGS) -shared -fPIC ${SWT_LFLAGS}
@@ -28,7 +26,7 @@
  
  # Treat all warnings as errors. If your new code produces a warning, please
  # take time to properly understand and fix/silence it as necessary.
-@@ -144,6 +147,8 @@ all: make_swt make_atk make_glx make_webkit
+@@ -129,6 +132,8 @@
  #
  make_swt: $(SWT_LIB) $(SWTPI_LIB)
  
@@ -37,7 +35,7 @@
  $(SWT_LIB): $(SWT_OBJECTS)
  	$(CC) $(LFLAGS) -o $(SWT_LIB) $(SWT_OBJECTS)
  
-@@ -151,7 +156,7 @@ callback.o: callback.c callback.h
+@@ -136,7 +141,7 @@
  	$(CC) $(CFLAGS) $(GTKCFLAGS) -DUSE_ASSEMBLER -c callback.c
  
  $(SWTPI_LIB): $(SWTPI_OBJECTS)
@@ -46,7 +44,7 @@
  
  swt.o: swt.c swt.h
  	$(CC) $(CFLAGS) -c swt.c
-@@ -184,7 +189,7 @@ gtk4_stats.o: gtk4_stats.c gtk4_structs.h gtk4.h gtk4_stats.h swt.h
+@@ -169,7 +174,7 @@
  make_cairo: $(CAIRO_LIB)
  
  $(CAIRO_LIB): $(CAIRO_OBJECTS)
@@ -55,7 +53,7 @@
  
  cairo.o: cairo.c cairo.h swt.h
  	$(CC) $(CFLAGS) $(CAIROCFLAGS) -c cairo.c
-@@ -199,7 +204,7 @@ cairo_stats.o: cairo_stats.c cairo_structs.h cairo.h cairo_stats.h swt.h
+@@ -184,7 +189,7 @@
  make_awt:$(AWT_LIB)
  
  $(AWT_LIB): $(AWT_OBJECTS)
@@ -64,7 +62,7 @@
  
  #
  # Atk lib
-@@ -207,7 +212,7 @@ $(AWT_LIB): $(AWT_OBJECTS)
+@@ -192,7 +197,7 @@
  make_atk: $(ATK_LIB)
  
  $(ATK_LIB): $(ATK_OBJECTS)
@@ -73,7 +71,7 @@
  
  atk.o: atk.c atk.h
  	$(CC) $(CFLAGS) $(ATKCFLAGS) -c atk.c
-@@ -278,7 +283,7 @@ chromiumlib_stats.o: chromiumlib_stats.c chromiumlib_stats.h
+@@ -229,7 +234,7 @@
  make_glx: $(GLX_LIB)
  
  $(GLX_LIB): $(GLX_OBJECTS)

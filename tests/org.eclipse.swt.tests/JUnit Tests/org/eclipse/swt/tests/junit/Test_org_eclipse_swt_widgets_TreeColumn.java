@@ -18,6 +18,9 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
@@ -119,13 +122,13 @@ public void test_getWidth() {
 //	}
 
 	treeColumn.setWidth(0);
-	assertTrue(":a: width=" + treeColumn.getWidth() + " should be=" + 0, treeColumn.getWidth() == 0);
+	assertEquals(":a: width=" + treeColumn.getWidth() + " should be=" + 0, 0, treeColumn.getWidth());
 
 	treeColumn.setWidth(testWidth);
-	assertTrue(":b: width=" + treeColumn.getWidth() + " should be=" + testWidth, treeColumn.getWidth() == testWidth);
+	assertEquals(":b: width=" + treeColumn.getWidth() + " should be=" + testWidth, testWidth, treeColumn.getWidth());
 
 	treeColumn.setWidth(testWidth);
-	assertTrue(":c: width=" + treeColumn.getWidth() + " should be=" + testWidth, treeColumn.getWidth() == testWidth);
+	assertEquals(":c: width=" + treeColumn.getWidth() + " should be=" + testWidth, testWidth, treeColumn.getWidth());
 }
 
 @Test
@@ -149,25 +152,25 @@ public void test_removeSelectionListenerLorg_eclipse_swt_events_SelectionListene
 public void test_setAlignmentI() {
 	TreeColumn column2;
 
-	assertTrue(":a:", treeColumn.getAlignment() == SWT.LEFT);
+	assertEquals(":a:", SWT.LEFT, treeColumn.getAlignment());
 
 	treeColumn.setAlignment(-1);
-	assertTrue(":b:", treeColumn.getAlignment() == SWT.LEFT);
+	assertEquals(":b:", SWT.LEFT, treeColumn.getAlignment());
 
 	treeColumn.setAlignment(SWT.RIGHT);
-	assertTrue(
-		":c: Should not be allowed to set alignment of the first column",
-		treeColumn.getAlignment() == SWT.LEFT);
+	assertEquals(
+			":c: Should not be allowed to set alignment of the first column",
+			SWT.LEFT, treeColumn.getAlignment());
 
 	column2 = new TreeColumn(tree, SWT.NULL);
 	column2.setAlignment(SWT.RIGHT);
-	assertTrue(":d:", column2.getAlignment() == SWT.RIGHT);
+	assertEquals(":d:", SWT.RIGHT, column2.getAlignment());
 
 	column2.setAlignment(SWT.CENTER);
-	assertTrue(":e:", column2.getAlignment() == SWT.CENTER);
+	assertEquals(":e:", SWT.CENTER, column2.getAlignment());
 
 	column2.setAlignment(SWT.LEFT);
-	assertTrue(":f:", column2.getAlignment() == SWT.LEFT);
+	assertEquals(":f:", SWT.LEFT, column2.getAlignment());
 }
 
 @Override
@@ -205,6 +208,53 @@ public void test_setTextLjava_lang_String() {
 	}
 }
 
+@Test
+public void test_ColumnOrder() {
+	Tree tree = new Tree(shell, 0);
+	List<TreeColumn> treeColumns = new ArrayList<>();
+	try {
+		for (;treeColumns.size()<12;) { // create
+			int[] columnOrder = tree.getColumnOrder();
+			assertEquals(treeColumns.size(), columnOrder.length);
+			assertEquals(treeColumns.size(), tree.getColumnCount());
+			for (int i = 0; i < treeColumns.size(); i++) {
+				assertEquals(i, columnOrder[i]);
+			}
+			TreeColumn treeColumn = new TreeColumn(tree, SWT.NULL);
+			treeColumns.add(treeColumn);
+		}
+
+		{ // reverse order
+			int[] reversedColumnOrder = new int[treeColumns.size()];
+			for (int i = 0; i < treeColumns.size(); i++) {
+				reversedColumnOrder[i] = treeColumns.size() - i - 1;
+			}
+			tree.setColumnOrder(reversedColumnOrder);
+			reversedColumnOrder = null;
+			int[] columnOrder = tree.getColumnOrder();
+			assertEquals(treeColumns.size(), columnOrder.length);
+			assertEquals(treeColumns.size(), tree.getColumnCount());
+			for (int i = 0; i < treeColumns.size(); i++) {
+				assertEquals(treeColumns.size() - i - 1, columnOrder[i]);
+			}
+		}
+		for (;!treeColumns.isEmpty();) { // remove
+			TreeColumn treeColumn = treeColumns.get(treeColumns.size() / 2);
+			treeColumn.dispose();
+			treeColumns.remove(treeColumn);
+			int[] columnOrder = tree.getColumnOrder();
+			assertEquals(treeColumns.size(), columnOrder.length);
+			assertEquals(treeColumns.size(), tree.getColumnCount());
+			for (int i = 0; i < treeColumns.size(); i++) {
+				// still reversed
+				assertEquals(treeColumns.size() - i - 1, columnOrder[i]);
+			}
+		}
+	} finally {
+		treeColumns.forEach(TreeColumn::dispose);
+		tree.dispose();
+	}
+}
 /* custom */
 protected TreeColumn treeColumn;
 protected Tree tree;

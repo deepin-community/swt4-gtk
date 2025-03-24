@@ -1,3 +1,53 @@
+swt4-gtk (4.29.0-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream release
+
+ -- Emmanuel Bourg <ebourg@apache.org>  Mon, 29 Jul 2024 12:45:35 +0200
+
+swt4-gtk (4.28.0-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream release
+    - Refreshed the patches
+    - Set the required SWT_JAVA_HOME environment variable
+  * Standards-Version updated to 4.7.0
+
+ -- Emmanuel Bourg <ebourg@apache.org>  Mon, 15 Jul 2024 17:29:01 +0200
+
+swt4-gtk (4.26.0-2) unstable; urgency=medium
+
+  * Team upload.
+
+  [ Jeremy Bícha ]
+  * Switch from webkit2gtk 4.0 to 4.1
+
+  [ Emmanuel Bourg ]
+  * Standards-Version updated to 4.6.2
+
+ -- Emmanuel Bourg <ebourg@apache.org>  Fri, 05 Jan 2024 14:57:21 +0100
+
+swt4-gtk (4.26.0-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream release
+    - Refreshed the patches
+  * Track and download the new releases from GitHub
+  * Filter out .gitattributes from the upstream tarball
+
+ -- Emmanuel Bourg <ebourg@apache.org>  Fri, 09 Dec 2022 11:20:12 +0100
+
+swt4-gtk (4.22.0-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream release
+    - Refreshed the patches
+  * Removed the jar installed in /usr/lib/java (keep the link only)
+  * Removed Adrian Perez from the uploaders (Closes: #1012042)
+  * Standards-Version updated to 4.6.1
+
+ -- Emmanuel Bourg <ebourg@apache.org>  Thu, 08 Dec 2022 11:38:21 +0100
+
 swt4-gtk (4.20.0-2) unstable; urgency=medium
 
   * Team upload.

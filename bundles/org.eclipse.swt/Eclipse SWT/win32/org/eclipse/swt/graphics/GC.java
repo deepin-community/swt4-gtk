@@ -197,7 +197,12 @@ void checkGC(int mask) {
 			long brush;
 			Pattern pattern = data.foregroundPattern;
 			if (pattern != null) {
-				brush = pattern.handle;
+				if(data.alpha == 0xFF) {
+					brush = pattern.handle;
+				} else {
+					brush = data.gdipFgPatternBrushAlpha != 0 ? Gdip.Brush_Clone(data.gdipFgPatternBrushAlpha) : createAlphaTextureBrush(pattern.handle, data.alpha);
+					data.gdipFgPatternBrushAlpha = brush;
+				}
 				if ((data.style & SWT.MIRRORED) != 0) {
 					switch (Gdip.Brush_GetType(brush)) {
 						case Gdip.BrushTypeTextureFill:
@@ -283,7 +288,12 @@ void checkGC(int mask) {
 			data.gdipBgBrush = 0;
 			Pattern pattern = data.backgroundPattern;
 			if (pattern != null) {
-				data.gdipBrush = pattern.handle;
+				if(data.alpha == 0xFF) {
+					data.gdipBrush = pattern.handle;
+				} else {
+					long brush = data.gdipBgPatternBrushAlpha != 0 ? Gdip.Brush_Clone(data.gdipBgPatternBrushAlpha) : createAlphaTextureBrush(pattern.handle, data.alpha);
+					data.gdipBrush = data.gdipBgBrush /*= data.gdipBgPatternBrushAlpha */ = brush;
+				}
 				if ((data.style & SWT.MIRRORED) != 0) {
 					switch (Gdip.Brush_GetType(data.gdipBrush)) {
 						case Gdip.BrushTypeTextureFill:
@@ -588,6 +598,49 @@ static long createGdipFont(long hDC, long hFont, long graphics, long fontCollect
 	return font;
 }
 
+/**
+ * Create a new brush with transparency from the image in {@link brush}.
+ *
+ * The returned brush has to be disposed by the caller.
+ *
+ * @param brush Brush with pattern
+ * @param alpha
+ * @return new brush with transparency
+ * @exception SWTError <ul>
+ *    <li>ERROR_CANNOT_BE_ZERO - if the image in the brush is null</li>
+ *    <li>ERROR_NO_HANDLES - if no handles are available to perform the operation</li>
+ * </ul>
+ */
+static long createAlphaTextureBrush(long brush, int alpha) {
+	if (Gdip.Brush_GetType(brush) != Gdip.BrushTypeTextureFill) {
+		return Gdip.Brush_Clone(brush);
+	}
+	long hatchImage = Gdip.TextureBrush_GetImage(brush);
+	if (hatchImage == 0) SWT.error(SWT.ERROR_CANNOT_BE_ZERO);
+	long transparentHatchImage = Gdip.Image_Clone(hatchImage);
+	if (transparentHatchImage == 0) SWT.error(SWT.ERROR_NO_HANDLES);
+	long attrib = Gdip.ImageAttributes_new();
+	Gdip.ImageAttributes_SetWrapMode(attrib, Gdip.WrapModeTile);
+	float[] matrix = new float[]{
+		1,0,0,0,0,
+		0,1,0,0,0,
+		0,0,1,0,0,
+		0,0,0,alpha / (float)0xFF,0,
+		0,0,0,0,1,
+	};
+	Gdip.ImageAttributes_SetColorMatrix(attrib, matrix, Gdip.ColorMatrixFlagsDefault, Gdip.ColorAdjustTypeBitmap);
+	Rect rect = new Rect();
+	rect.X = 0;
+	rect.Y = 0;
+	rect.Width = Gdip.Image_GetWidth(transparentHatchImage);
+	rect.Height = Gdip.Image_GetHeight(transparentHatchImage);
+	long transparentBrush = Gdip.TextureBrush_new(transparentHatchImage, rect, attrib);
+	if (brush == 0) SWT.error(SWT.ERROR_NO_HANDLES);
+	Gdip.ImageAttributes_delete(attrib);
+	Gdip.Image_delete(transparentHatchImage);
+	return transparentBrush;
+}
+
 static void destroyGdipBrush(long brush) {
 	int type = Gdip.Brush_GetType(brush);
 	switch (type) {
@@ -666,8 +719,11 @@ void disposeGdip() {
 	if (data.gdipFont != 0) Gdip.Font_delete(data.gdipFont);
 	if (data.hGDIFont != 0) OS.DeleteObject(data.hGDIFont);
 	if (data.gdipGraphics != 0) Gdip.Graphics_delete(data.gdipGraphics);
+	if (data.gdipBgPatternBrushAlpha != 0) destroyGdipBrush(data.gdipBgPatternBrushAlpha);
+	if (data.gdipFgPatternBrushAlpha != 0) destroyGdipBrush(data.gdipFgPatternBrushAlpha);
 	data.gdipGraphics = data.gdipBrush = data.gdipBgBrush = data.gdipFgBrush =
-		data.gdipFont = data.gdipPen = data.hGDIFont = 0;
+		data.gdipFont = data.gdipPen = data.hGDIFont = data.gdipBgPatternBrushAlpha =
+		data.gdipFgPatternBrushAlpha = 0;
 }
 
 /**
@@ -1164,12 +1220,14 @@ void drawBitmap(Image srcImage, int srcX, int srcY, int srcWidth, int srcHeight,
 			data.hNullBitmap = 0;
 		}
 	}
-	if (srcImage.alpha != -1 || srcImage.alphaData != null) {
-		drawBitmapAlpha(srcImage, srcX, srcY, srcWidth, srcHeight, destX, destY, destWidth, destHeight, simple, bm, imgWidth, imgHeight);
+	boolean isDib = bm.bmBits != 0;
+	int depth = bm.bmPlanes * bm.bmBitsPixel;
+	if (isDib && depth == 32) {
+		drawBitmapAlpha(srcImage, srcX, srcY, srcWidth, srcHeight, destX, destY, destWidth, destHeight, simple);
 	} else if (srcImage.transparentPixel != -1) {
 		drawBitmapTransparent(srcImage, srcX, srcY, srcWidth, srcHeight, destX, destY, destWidth, destHeight, simple, bm, imgWidth, imgHeight);
 	} else {
-		drawBitmap(srcImage, srcX, srcY, srcWidth, srcHeight, destX, destY, destWidth, destHeight, simple, bm, imgWidth, imgHeight);
+		drawBitmapColor(srcImage, srcX, srcY, srcWidth, srcHeight, destX, destY, destWidth, destHeight, simple);
 	}
 	if (mustRestore) {
 		long hOldBitmap = OS.SelectObject(memGC.handle, srcImage.handle);
@@ -1177,35 +1235,15 @@ void drawBitmap(Image srcImage, int srcX, int srcY, int srcWidth, int srcHeight,
 	}
 }
 
-void drawBitmapAlpha(Image srcImage, int srcX, int srcY, int srcWidth, int srcHeight, int destX, int destY, int destWidth, int destHeight, boolean simple, BITMAP bm, int imgWidth, int imgHeight) {
-	/* Simple cases */
-	if (srcImage.alpha == 0) return;
-	if (srcImage.alpha == 255) {
-		drawBitmap(srcImage, srcX, srcY, srcWidth, srcHeight, destX, destY, destWidth, destHeight, simple, bm, imgWidth, imgHeight);
-		return;
-	}
-
+void drawBitmapAlpha(Image srcImage, int srcX, int srcY, int srcWidth, int srcHeight, int destX, int destY, int destWidth, int destHeight, boolean simple) {
 	boolean alphaBlendSupport = true;
 	boolean isPrinter = OS.GetDeviceCaps(handle, OS.TECHNOLOGY) == OS.DT_RASPRINTER;
+	int sourceAlpha = -1;
 	if (isPrinter) {
 		int caps = OS.GetDeviceCaps(handle, OS.SHADEBLENDCAPS);
 		if (caps != 0) {
-			if (srcImage.alpha != -1) {
-				alphaBlendSupport = (caps & OS.SB_CONST_ALPHA) != 0;
-			} else {
-				alphaBlendSupport = (caps & OS.SB_PIXEL_ALPHA) != 0;
-			}
-		}
-	}
-	if (alphaBlendSupport) {
-		BLENDFUNCTION blend = new BLENDFUNCTION();
-		blend.BlendOp = OS.AC_SRC_OVER;
-		long srcHdc = OS.CreateCompatibleDC(handle);
-		long oldSrcBitmap = OS.SelectObject(srcHdc, srcImage.handle);
-		if (srcImage.alpha != -1) {
-			blend.SourceConstantAlpha = (byte)srcImage.alpha;
-			OS.AlphaBlend(handle, destX, destY, destWidth, destHeight, srcHdc, srcX, srcY, srcWidth, srcHeight, blend);
-		} else {
+			long srcHdc = OS.CreateCompatibleDC(handle);
+			long oldSrcBitmap = OS.SelectObject(srcHdc, srcImage.handle);
 			long memDib = Image.createDIB(srcWidth, srcHeight, 32);
 			if (memDib == 0) SWT.error(SWT.ERROR_NO_HANDLES);
 			long memHdc = OS.CreateCompatibleDC(handle);
@@ -1215,34 +1253,41 @@ void drawBitmapAlpha(Image srcImage, int srcX, int srcY, int srcWidth, int srcHe
 			OS.BitBlt(memHdc, 0, 0, srcWidth, srcHeight, srcHdc, srcX, srcY, OS.SRCCOPY);
 			byte[] srcData = new byte[dibBM.bmWidthBytes * dibBM.bmHeight];
 			OS.MoveMemory(srcData, dibBM.bmBits, srcData.length);
-			final int apinc = imgWidth - srcWidth;
-			int ap = srcY * imgWidth + srcX, sp = 0;
-			byte[] alphaData = srcImage.alphaData;
-			for (int y = 0; y < srcHeight; ++y) {
-				for (int x = 0; x < srcWidth; ++x) {
-					int alpha = alphaData[ap++] & 0xff;
-					int r = ((srcData[sp + 0] & 0xFF) * alpha) + 128;
-					r = (r + (r >> 8)) >> 8;
-					int g = ((srcData[sp + 1] & 0xFF) * alpha) + 128;
-					g = (g + (g >> 8)) >> 8;
-					int b = ((srcData[sp + 2] & 0xFF) * alpha) + 128;
-					b = (b + (b >> 8)) >> 8;
-					srcData[sp+0] = (byte)r;
-					srcData[sp+1] = (byte)g;
-					srcData[sp+2] = (byte)b;
-					srcData[sp+3] = (byte)alpha;
-					sp += 4;
+			int size = srcData.length;
+			sourceAlpha = srcData[3] & 0xFF;
+			for (int sp = 7; sp < size; sp += 4) {
+				int currentAlpha = srcData[sp] & 0xFF;
+				if (sourceAlpha != currentAlpha) {
+					sourceAlpha = -1;
+					break;
 				}
-				ap += apinc;
 			}
-			OS.MoveMemory(dibBM.bmBits, srcData, srcData.length);
-			blend.SourceConstantAlpha = (byte)0xff;
-			blend.AlphaFormat = OS.AC_SRC_ALPHA;
-			OS.AlphaBlend(handle, destX, destY, destWidth, destHeight, memHdc, 0, 0, srcWidth, srcHeight, blend);
 			OS.SelectObject(memHdc, oldMemBitmap);
 			OS.DeleteDC(memHdc);
 			OS.DeleteObject(memDib);
+			OS.SelectObject(srcHdc, oldSrcBitmap);
+			OS.DeleteDC(srcHdc);
+			if (sourceAlpha != -1) {
+				if (sourceAlpha == 0) return;
+				if (sourceAlpha == 255) {
+					drawBitmapColor(srcImage, srcX, srcY, srcWidth, srcHeight, destX, destY, destWidth, destHeight, simple);
+					return;
+				}
+				alphaBlendSupport = (caps & OS.SB_CONST_ALPHA) != 0;
+			}
+			else {
+				alphaBlendSupport = (caps & OS.SB_PIXEL_ALPHA) != 0;
+			}
 		}
+	}
+	if (alphaBlendSupport) {
+		BLENDFUNCTION blend = new BLENDFUNCTION();
+		blend.BlendOp = OS.AC_SRC_OVER;
+		long srcHdc = OS.CreateCompatibleDC(handle);
+		long oldSrcBitmap = OS.SelectObject(srcHdc, srcImage.handle);
+		blend.SourceConstantAlpha = (byte)sourceAlpha;
+		blend.AlphaFormat = OS.AC_SRC_ALPHA;
+		OS.AlphaBlend(handle, destX, destY, destWidth, destHeight, srcHdc, srcX, srcY, srcWidth, srcHeight, blend);
 		OS.SelectObject(srcHdc, oldSrcBitmap);
 		OS.DeleteDC(srcHdc);
 		return;
@@ -1292,26 +1337,6 @@ void drawBitmapAlpha(Image srcImage, int srcX, int srcY, int srcWidth, int srcHe
 	byte[] srcData = new byte[sizeInBytes];
 	OS.MoveMemory(srcData, dibBM.bmBits, sizeInBytes);
 
-	/* Merge the alpha channel in place */
-	int alpha = srcImage.alpha;
-	final boolean hasAlphaChannel = (srcImage.alpha == -1);
-	if (hasAlphaChannel) {
-		final int apinc = imgWidth - srcWidth;
-		final int spinc = dibBM.bmWidthBytes - srcWidth * 4;
-		int ap = srcY * imgWidth + srcX, sp = 3;
-		byte[] alphaData = srcImage.alphaData;
-		for (int y = 0; y < srcHeight; ++y) {
-			for (int x = 0; x < srcWidth; ++x) {
-				srcData[sp] = alphaData[ap++];
-				sp += 4;
-			}
-			ap += apinc;
-			sp += spinc;
-		}
-	}
-
-	/* Scale the foreground pixels with alpha */
-	OS.MoveMemory(dibBM.bmBits, srcData, sizeInBytes);
 	/*
 	* When drawing to a printer, StretchBlt does not correctly stretch if
 	* the source and destination HDCs are the same.  The workaround is to
@@ -1347,10 +1372,10 @@ void drawBitmapAlpha(Image srcImage, int srcX, int srcY, int srcWidth, int srcHe
 	int dp = 0;
 	for (int y = 0; y < destHeight; ++y) {
 		for (int x = 0; x < destWidth; ++x) {
-			if (hasAlphaChannel) alpha = srcData[dp + 3] & 0xff;
-			destData[dp] += ((srcData[dp] & 0xff) - (destData[dp] & 0xff)) * alpha / 255;
-			destData[dp + 1] += ((srcData[dp + 1] & 0xff) - (destData[dp + 1] & 0xff)) * alpha / 255;
-			destData[dp + 2] += ((srcData[dp + 2] & 0xff) - (destData[dp + 2] & 0xff)) * alpha / 255;
+			int alpha = srcData[dp + 3] & 0xFF;
+			destData[dp    ] += (srcData[dp    ] & 0xFF) - (destData[dp    ] & 0xFF) * alpha / 255;
+			destData[dp + 1] += (srcData[dp + 1] & 0xFF) - (destData[dp + 1] & 0xFF) * alpha / 255;
+			destData[dp + 2] += (srcData[dp + 2] & 0xFF) - (destData[dp + 2] & 0xFF) * alpha / 255;
 			dp += 4;
 		}
 		dp += dpinc;
@@ -1586,7 +1611,7 @@ void drawBitmapTransparent(Image srcImage, int srcX, int srcY, int srcWidth, int
 	OS.DeleteDC(srcHdc);
 }
 
-void drawBitmap(Image srcImage, int srcX, int srcY, int srcWidth, int srcHeight, int destX, int destY, int destWidth, int destHeight, boolean simple, BITMAP bm, int imgWidth, int imgHeight) {
+void drawBitmapColor(Image srcImage, int srcX, int srcY, int srcWidth, int srcHeight, int destX, int destY, int destWidth, int destHeight, boolean simple) {
 	long srcHdc = OS.CreateCompatibleDC(handle);
 	long oldSrcBitmap = OS.SelectObject(srcHdc, srcImage.handle);
 	int dwRop = OS.GetROP2(handle) == OS.R2_XORPEN ? OS.SRCINVERT : OS.SRCCOPY;
@@ -3742,18 +3767,13 @@ public void getTransform(Transform transform) {
 	if (transform.isDisposed()) SWT.error(SWT.ERROR_INVALID_ARGUMENT);
 	long gdipGraphics = data.gdipGraphics;
 	if (gdipGraphics != 0) {
+		Gdip.Graphics_GetTransform(gdipGraphics, transform.handle);
 		long identity = identity();
-		long matrix = Gdip.Matrix_new();
 		Gdip.Matrix_Invert(identity);
-		Gdip.Graphics_GetTransform(gdipGraphics, matrix);
-		Gdip.Matrix_Multiply(matrix, identity, Gdip.MatrixOrderAppend);
-		float[] elements = new float[6];
-		Gdip.Matrix_GetElements(matrix, elements);
-		Gdip.Matrix_delete(matrix);
+		Gdip.Matrix_Multiply(transform.handle, identity, Gdip.MatrixOrderAppend);
 		Gdip.Matrix_delete(identity);
-		transform.setElements(elements);
 	} else {
-		transform.identity();
+		transform.setElements(1, 0, 0, 1, 0, 0);
 	}
 }
 
@@ -4106,6 +4126,14 @@ public void setAlpha(int alpha) {
 	initGdip();
 	data.alpha = alpha & 0xFF;
 	data.state &= ~(BACKGROUND | FOREGROUND);
+	if(data.gdipFgPatternBrushAlpha != 0) {
+		Gdip.TextureBrush_delete(data.gdipFgPatternBrushAlpha);
+		data.gdipFgPatternBrushAlpha = 0;
+	}
+	if(data.gdipBgPatternBrushAlpha != 0) {
+		Gdip.TextureBrush_delete(data.gdipBgPatternBrushAlpha);
+		data.gdipBgPatternBrushAlpha = 0;
+	}
 }
 
 /**
@@ -4165,6 +4193,10 @@ public void setBackgroundPattern (Pattern pattern) {
 	if (data.backgroundPattern == pattern) return;
 	data.backgroundPattern = pattern;
 	data.state &= ~BACKGROUND;
+	if(data.gdipBgPatternBrushAlpha != 0) {
+		Gdip.TextureBrush_delete(data.gdipBgPatternBrushAlpha);
+		data.gdipBgPatternBrushAlpha = 0;
+	}
 }
 
 void setClipping(long clipRgn) {
@@ -4410,6 +4442,10 @@ public void setForegroundPattern (Pattern pattern) {
 	if (data.foregroundPattern == pattern) return;
 	data.foregroundPattern = pattern;
 	data.state &= ~FOREGROUND;
+	if(data.gdipFgPatternBrushAlpha != 0) {
+		Gdip.TextureBrush_delete(data.gdipFgPatternBrushAlpha);
+		data.gdipFgPatternBrushAlpha = 0;
+	}
 }
 
 /**
@@ -4853,13 +4889,7 @@ public void setTransform(Transform transform) {
 	initGdip();
 	long identity = identity();
 	if (transform != null) {
-		long matrix = Gdip.Matrix_new();
-		Gdip.Matrix_SetElements(matrix,
-				(float)transform.m11, (float)transform.m12,
-				(float)transform.m21, (float)transform.m22,
-				(float)transform.dx, (float)transform.dy);
-		Gdip.Matrix_Multiply(identity, matrix, Gdip.MatrixOrderPrepend);
-		Gdip.Matrix_delete(matrix);
+		Gdip.Matrix_Multiply(identity, transform.handle, Gdip.MatrixOrderPrepend);
 	}
 	Gdip.Graphics_SetTransform(data.gdipGraphics, identity);
 	Gdip.Matrix_delete(identity);

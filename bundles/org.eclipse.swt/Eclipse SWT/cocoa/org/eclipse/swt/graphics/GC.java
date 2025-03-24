@@ -123,15 +123,20 @@ public final class GC extends Resource {
 		private NSRange range;
 
 		/**
+		 * Key object to use for Cache consisting of text string, alpho, font and foreground color
+		 */
+		private static record Key(String string, int alpha, long font, double[] fgColor) {}
+
+		/**
 		 * Simple {@link GCTextData} cache limited to a set number of items.
 		 */
 		private static class Cache {
 			private final int cacheSize;
-			private final Map<String, GCTextData> cache = new LinkedHashMap<String, GCTextData>() {
+			private final Map<Key, GCTextData> cache = new LinkedHashMap<>() {
 				private static final long serialVersionUID = 1L;
 
 				@Override
-				protected boolean removeEldestEntry(Map.Entry<String, GCTextData> eldest) {
+				protected boolean removeEldestEntry(Map.Entry<Key, GCTextData> eldest) {
 					if (size() >= cacheSize) {
 						((GCTextData) eldest.getValue()).release();
 						return true;
@@ -151,12 +156,12 @@ public final class GC extends Resource {
 				cache.clear();
 			}
 
-			public GCTextData get(String string) {
-				return cache.get(string);
+			public GCTextData get(Key key) {
+				return cache.get(key);
 			}
 
-			public void put(String string, GCTextData data) {
-				cache.put(string, data);
+			public void put(Key key, GCTextData data) {
+				cache.put(key, data);
 			}
 		}
 
@@ -1807,14 +1812,20 @@ private void doFastDrawText(String string, int x, int y) {
 }
 
 private GCTextData getTextData(String string) {
-	GCTextData data = (GCTextData) textDataCache.get(string);
-	if (data == null) {
+	// Create a cache key from the string, alpha, font and foreground color
+	// This ensures that the same string with different attributes is drawn correctly
+	GCTextData.Key key = new GCTextData.Key(string, data.alpha,
+			(data.font == null || data.font.handle == null) ? 0 : data.font.handle.id,
+			data.foreground);
+
+	GCTextData gcData = textDataCache.get(key);
+	if (gcData == null) {
 		NSAttributedString attribStr = createString(string, 0, true);
-		data = new GCTextData(attribStr);
+		gcData = new GCTextData(attribStr);
 		attribStr.release();
-		textDataCache.put(string, data);
+		textDataCache.put(key, gcData);
 	}
-	return data;
+	return gcData;
 }
 
 private void doDrawText(String string, int x, int y, int flags) {
@@ -3012,14 +3023,9 @@ public void getTransform (Transform transform) {
 	NSAffineTransform cmt = data.transform;
 	if (cmt != null) {
 		NSAffineTransformStruct struct = cmt.transformStruct();
-		transform.m11 = struct.m11;
-		transform.m12 = struct.m12;
-		transform.m21 = struct.m21;
-		transform.m22 = struct.m22;
-		transform.dx = struct.tX;
-		transform.dy = struct.tY;
+		transform.handle.setTransformStruct(struct);
 	} else {
-		transform.identity();
+		transform.setElements(1, 0, 0, 1, 0, 0);
 	}
 }
 
@@ -3167,6 +3173,11 @@ public boolean isClipped() {
 @Override
 public boolean isDisposed() {
 	return handle == null;
+}
+
+boolean isIdentity(float[] transform) {
+	return transform[0] == 1 && transform[1] == 0 && transform[2] == 0
+		&& transform[3] == 1 && transform[4] == 0 && transform[5] == 0;
 }
 
 /**
@@ -4033,19 +4044,11 @@ public void setTransform(Transform transform) {
 	if (handle == null) SWT.error(SWT.ERROR_GRAPHIC_DISPOSED);
 	if (transform != null && transform.isDisposed()) SWT.error(SWT.ERROR_INVALID_ARGUMENT);
 	if (transform != null) {
-		NSAffineTransformStruct struct = new NSAffineTransformStruct();
-		struct.m11 = transform.m11;
-		struct.m12 = transform.m12;
-		struct.m21 = transform.m21;
-		struct.m22 = transform.m22;
-		struct.tX = transform.dx;
-		struct.tY = transform.dy;
 		if (data.transform != null) data.transform.release();
 		if (data.inverseTransform != null) data.inverseTransform.release();
-		data.transform = ((NSAffineTransform)new NSAffineTransform().alloc()).init();
-		data.inverseTransform = ((NSAffineTransform)new NSAffineTransform().alloc()).init();
-		data.transform.setTransformStruct(struct);
-		data.inverseTransform.setTransformStruct(struct);
+		data.transform = ((NSAffineTransform)new NSAffineTransform().alloc()).initWithTransform(transform.handle);
+		data.inverseTransform = ((NSAffineTransform)new NSAffineTransform().alloc()).initWithTransform(transform.handle);
+		NSAffineTransformStruct struct = data.inverseTransform.transformStruct();
 		if ((struct.m11 * struct.m22 - struct.m12 * struct.m21) != 0) {
 			data.inverseTransform.invert();
 		}

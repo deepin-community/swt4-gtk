@@ -79,6 +79,9 @@ public enum Selector {
 	, sel_selectedContentBackgroundColor("selectedContentBackgroundColor")
 	, sel_unemphasizedSelectedContentBackgroundColor("unemphasizedSelectedContentBackgroundColor")
 
+	/** 11.0 selector */
+	, sel_setStyle("setStyle:")
+
 	, sel_awtAppDelegate("awtAppDelegate")
 
 	  /** This section is auto generated */
@@ -553,6 +556,7 @@ public enum Selector {
 	, sel_initWithString_attributes_("initWithString:attributes:")
 	, sel_initWithTitle_("initWithTitle:")
 	, sel_initWithTitle_action_keyEquivalent_("initWithTitle:action:keyEquivalent:")
+	, sel_initWithTransform_("initWithTransform:")
 	, sel_initWithType_location_("initWithType:location:")
 	, sel_insertColor_key_atIndex_("insertColor:key:atIndex:")
 	, sel_insertItem_atIndex_("insertItem:atIndex:")
@@ -807,6 +811,7 @@ public enum Selector {
 	, sel_redComponent("redComponent")
 	, sel_redo("redo")
 	, sel_reflectScrolledClipView_("reflectScrolledClipView:")
+	, sel_registerDefaults_("registerDefaults:")
 	, sel_registerForDraggedTypes_("registerForDraggedTypes:")
 	, sel_release("release")
 	, sel_reload_("reload:")

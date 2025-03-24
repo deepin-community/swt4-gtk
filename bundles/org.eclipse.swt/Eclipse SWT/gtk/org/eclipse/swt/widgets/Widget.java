@@ -18,6 +18,7 @@ import java.util.*;
 
 import org.eclipse.swt.*;
 import org.eclipse.swt.events.*;
+import org.eclipse.swt.graphics.*;
 import org.eclipse.swt.internal.*;
 import org.eclipse.swt.internal.gtk.*;
 import org.eclipse.swt.internal.gtk3.*;
@@ -239,7 +240,11 @@ public abstract class Widget {
 	static final int NOTIFY_STATE = 102;
 	static final int SIZE_ALLOCATE_GTK4 = 103;
 	static final int DPI_CHANGED = 104;
-	static final int LAST_SIGNAL = 105;
+	static final int NOTIFY_DEFAULT_HEIGHT = 105;
+	static final int NOTIFY_DEFAULT_WIDTH = 106;
+	static final int NOTIFY_MAXIMIZED = 107;
+	static final int COMPUTE_SIZE = 108;
+	static final int LAST_SIGNAL = 109;
 
 	static final String IS_ACTIVE = "org.eclipse.swt.internal.control.isactive"; //$NON-NLS-1$
 	static final String KEY_CHECK_SUBWINDOW = "org.eclipse.swt.internal.control.checksubwindow"; //$NON-NLS-1$
@@ -250,7 +255,9 @@ public abstract class Widget {
 /**
  * Prevents uninitialized instances from being created outside the package.
  */
-Widget () {}
+Widget () {
+	notifyCreationTracker();
+}
 
 /**
  * Constructs a new instance of this class given its parent
@@ -287,6 +294,7 @@ public Widget (Widget parent, int style) {
 	this.style = style;
 	display = parent.display;
 	reskinWidget ();
+	notifyCreationTracker();
 }
 
 void _addListener (int eventType, Listener listener) {
@@ -732,10 +740,99 @@ long gtk_button_release_event (long widget, long event) {
 	return 0;
 }
 
-void gtk_gesture_press_event (long gesture, int n_press, double x, double y, long event) {
+/**
+ * @param gesture the corresponding controller responsible for capturing the event
+ * @param n_press how many touch/button presses happened with this one
+ * @param x the x coordinate, in widget allocation coordinates
+ * @param y the y coordinate, in widget allocation coordinates
+ * @param event the GdkEvent captured
+ */
+void gtk_gesture_press_event(long gesture, int n_press, double x, double y, long event) {}
+
+/**
+ * @param gesture the corresponding controller responsible for capturing the event
+ * @param n_press how many touch/button presses happened with this one
+ * @param x the x coordinate, in widget allocation coordinates
+ * @param y the y coordinate, in widget allocation coordinates
+ * @param event the GdkEvent captured
+ */
+void gtk_gesture_release_event(long gesture, int n_press, double x, double y, long event) {}
+
+/**
+ * @param controller the corresponding controller responsible for capturing the event
+ * @param x the x coordinate
+ * @param y the y coordinate
+ * @param event the GdkEvent captured
+ */
+void gtk4_motion_event(long controller, double x, double y, long event) {}
+
+/**
+ * @param controller the corresponding controller responsible for capturing the event
+ * @param keyval the pressed key
+ * @param keycode raw code of the pressed key
+ * @param state the bitmask, representing the state of the modifier keys and pointer buttons
+ * @param event the GdkEvent captured
+ * @return TRUE if the event has been fully/properly handled, otherwise FALSE
+ */
+boolean gtk4_key_press_event(long controller, int keyval, int keycode, int state, long event) {
+	return !sendKeyEvent(SWT.KeyDown, event);
 }
 
-void gtk_gesture_release_event (long gesture, int n_press, double x, double y, long event) {
+/**
+ * @param controller the corresponding controller responsible for capturing the event
+ * @param keyval the released key
+ * @param keycode raw code of the released key
+ * @param state the bitmask, representing the state of the modifier keys and pointer buttons
+ * @param event the GdkEvent captured
+ */
+void gtk4_key_release_event(long controller, int keyval, int keycode, int state, long event) {
+	sendKeyEvent(SWT.KeyUp, event);
+}
+
+/**
+ * @param controller the corresponding controller responsible for capturing the event
+ * @param event the GdkEvent captured
+ */
+void gtk4_focus_enter_event(long controller, long event) {}
+
+/**
+ * @param handle the handle of the window that caused the event
+ * @param event the type of event, should be FocusIn or FocusOut
+ */
+void gtk4_focus_window_event(long handle, long event) {
+	if(event == SWT.FocusIn) gtk_focus_in_event (handle, event);
+	else gtk_focus_out_event(handle, event);
+}
+
+/**
+ * @param controller the corresponding controller responsible for capturing the event
+ * @param event the GdkEvent captured
+ */
+void gtk4_focus_leave_event(long controller, long event) {}
+
+/**
+ * @param controller the corresponding controller responsible for capturing the event
+ * @param x x coordinate of pointer location
+ * @param y y coordinate of pointer location
+ * @param event the GdkEvent captured
+ */
+void gtk4_enter_event(long controller, double x, double y, long event) {}
+
+/**
+ * @param controller the corresponding controller responsible for capturing the event
+ * @param event the GdkEvent captured
+ */
+void gtk4_leave_event(long controller, long event) {}
+
+/**
+ * @param controller the corresponding controller responsible for capturing the event
+ * @param dx x delta
+ * @param dy y delta
+ * @param event the GdkEvent captured
+ * @return TRUE if the scroll event was handled, FALSE otherwise
+ */
+boolean gtk4_scroll_event(long controller, double dx, double dy, long event) {
+	return false;
 }
 
 long gtk_changed (long widget) {
@@ -801,6 +898,8 @@ long gtk_expand_collapse_cursor_row (long widget, long logical, long expand, lon
 long gtk_draw (long widget, long cairo) {
 	return 0;
 }
+
+void gtk4_draw(long widget, long cairo, Rectangle bounds) {}
 
 long gtk_focus (long widget, long event) {
 	return 0;
@@ -918,14 +1017,6 @@ long gtk_row_activated (long tree, long path, long column) {
 	// 'row-activated' is triggered. See Bug 312568, 518414.
 }
 
-long gtk_row_deleted (long model, long path) {
-	return 0;
-}
-
-long gtk_row_inserted (long model, long path, long iter) {
-	return 0;
-}
-
 long gtk_row_has_child_toggled (long model, long path, long iter) {
 	return 0;
 }
@@ -950,7 +1041,7 @@ long gtk_show (long widget) {
 	return 0;
 }
 
-long gtk_show_help (long widget, long helpType) {
+long gtk3_show_help (long widget, long helpType) {
 	return 0;
 }
 
@@ -1239,23 +1330,34 @@ void register () {
 }
 
 void release (boolean destroy) {
-	if ((state & DISPOSE_SENT) == 0) {
-		state |= DISPOSE_SENT;
-		sendEvent (SWT.Dispose);
-	}
-	if ((state & DISPOSED) == 0) {
-		releaseChildren (destroy);
-	}
-	if ((state & RELEASED) == 0) {
-		state |= RELEASED;
-		if (destroy) {
-			releaseParent ();
-			releaseWidget ();
-			destroyWidget ();
-		} else {
-			releaseWidget ();
-			releaseHandle ();
+	try (ExceptionStash exceptions = new ExceptionStash ()) {
+		if ((state & DISPOSE_SENT) == 0) {
+			state |= DISPOSE_SENT;
+			try {
+				sendEvent (SWT.Dispose);
+			} catch (Error | RuntimeException ex) {
+				exceptions.stash (ex);
+			}
 		}
+		if ((state & DISPOSED) == 0) {
+			try {
+				releaseChildren (destroy);
+			} catch (Error | RuntimeException ex) {
+				exceptions.stash (ex);
+			}
+		}
+		if ((state & RELEASED) == 0) {
+			state |= RELEASED;
+			if (destroy) {
+				releaseParent ();
+				releaseWidget ();
+				destroyWidget ();
+			} else {
+				releaseWidget ();
+				releaseHandle ();
+			}
+		}
+		notifyDisposalTracker();
 	}
 }
 
@@ -1463,7 +1565,7 @@ boolean sendKeyEvent (int type, long event) {
 		/* TODO: GTK4 no access to key event string */
 	} else {
 		GdkEventKey gdkEvent = new GdkEventKey ();
-		OS.memmove(gdkEvent, event, GdkEventKey.sizeof);
+		GTK3.memmove(gdkEvent, event, GdkEventKey.sizeof);
 		length = gdkEvent.length;
 		string = gdkEvent.string;
 	}
@@ -1494,7 +1596,8 @@ char [] sendIMKeyEvent (int type, long event, char [] chars) {
 	int index = 0, count = 0, state = 0;
 	long ptr = 0;
 	if (event == 0) {
-		ptr = GTK3.gtk_get_current_event ();
+		long controller = Control.getControl(this.handle).keyController;
+		ptr = GTK.GTK4 ? GTK4.gtk_event_controller_get_current_event(controller):GTK3.gtk_get_current_event ();
 		if (ptr != 0) {
 			int eventType = GDK.gdk_event_get_event_type(ptr);
 			eventType = Control.fixGdkEventTypeValues(eventType);
@@ -1514,9 +1617,13 @@ char [] sendIMKeyEvent (int type, long event, char [] chars) {
 					break;
 			}
 		} else {
-			int [] buffer = new int [1];
-			GTK3.gtk_get_current_event_state (buffer);
-			state = buffer [0];
+			if(GTK.GTK4) {
+				state = GTK4.gtk_event_controller_get_current_event_state(controller);
+			} else {
+				int [] buffer = new int [1];
+				GTK3.gtk_get_current_event_state (buffer);
+				state = buffer [0];
+			}
 		}
 	} else {
 		ptr = event;
@@ -1538,13 +1645,13 @@ char [] sendIMKeyEvent (int type, long event, char [] chars) {
 		* the key by returning null.
 		*/
 		if (isDisposed ()) {
-			if (ptr != 0 && ptr != event) gdk_event_free (ptr);
+			if (ptr != 0 && ptr != event && !GTK.GTK4) gdk_event_free (ptr);
 			return null;
 		}
 		if (javaEvent.doit) chars [count++] = chars [index];
 		index++;
 	}
-	if (ptr != 0 && ptr != event) gdk_event_free (ptr);
+	if (ptr != 0 && ptr != event && !GTK.GTK4) gdk_event_free (ptr);
 	if (count == 0) return null;
 	if (index != count) {
 		char [] result = new char [count];
@@ -1815,6 +1922,79 @@ boolean setInputState (Event event, int state) {
 	return true;
 }
 
+/**
+ * On Linux, the most common way to handle keyboard input is XKB.
+ * The rest of the description explains XKB and related GTK stuff.
+ *
+ * XKB uses the following definitions:
+ * <ul>
+ *  <li>"group" - that's how they call keyboard layouts</li>
+ *  <li>"keycode" - id of a physical key on a keyboard. For example,
+ *   AB01 refers to 2nd row from the bottom (B), 1st key (01) </li>
+ *  <li>"level" - Can be seen as a number that describes modifiers
+ *   pressed together with the key. For example, in English US,
+ *   pressing A would result in level 0, and pressing Shift+A would
+ *   result in level 1. The other common levels are used for AltGr
+ *   and Shift+AltGr, but a keyboard layout could have even more
+ *   exotic levels.</li>
+ *  <li>"modifiers" - a combination of modifier keys. Keyboard
+ *   layouts could define their own modifiers.</li>
+ *  <li>"keyval" - Can be seen as a final calculation of what was
+ *   produced by a key press (by taking keycode, group, level, and
+ *   other modifiers such as dead keys into account).
+ * </ul>
+ * Some examples:
+ * <table>
+ *  <tr><th>Layout</th><th>Key row</th><th>Key col</th><th>Keycode</th><th>Modifiers</th><th>Keyval</th><th>Character</th></tr>
+ *  <tr><td>English US    </td><td>1</td><td>10</td><td>FK09</td><td></td><td>F9</td><td></td></tr>
+ *  <tr><td>English US    </td><td>3</td><td>5</td><td>AD04</td><td></td><td>r</td><td>r</td></tr>
+ *  <tr><td>English US    </td><td>3</td><td>5</td><td>AD04</td><td>Shift</td><td>R</td><td>R</td></tr>
+ *  <tr><td>English US    </td><td>3</td><td>6</td><td>AD05</td><td></td><td>t</td><td>t</td></tr>
+ *  <tr><td>English Dvorak</td><td>3</td><td>5</td><td>AD04</td><td></td><td>p</td><td>p</td></tr>
+ *  <tr><td>English Dvorak</td><td>3</td><td>6</td><td>AD05</td><td></td><td>y</td><td>y</td></tr>
+ *  <tr><td>Bulgarian     </td><td>3</td><td>5</td><td>AD04</td><td></td><td>Cyrillic_i</td><td>и</td></tr>
+ *  <tr><td>Bulgarian     </td><td>3</td><td>6</td><td>AD05</td><td></td><td>Cyrillic_sha</td><td>ш</td></tr>
+ * </table><br>
+ *
+ * XKB doesn't do two-step keyboard layout translation like Windows.
+ * For this reason, binding keyboard shortcuts across keyboard layouts
+ * quickly becomes ugly. Further, each major UI library (such as Qt
+ * or GTK) and many major softwares (such as Firefox, LibreOffice)
+ * has its own approach. Usually developed through trial, error and
+ * pain.
+ *
+ * The common approach is to search all installed keyboard layouts
+ * and find some that is latin. Then invoke keyboard shortcut using
+ * that layout. That is, if current layout is Bulgarian:<br>
+ * <ul>
+ *  <li>notice that current layout is not latin</li>
+ *  <li>search installed layouts to find a latin one</li>
+ *  <li>map pressed key to a latin char using that layout</li>
+ *  <li>invoke keyboard shortcut</li>
+ * </ul>
+ *
+ * The details of how it's done differ across libraries and
+ * softwares. For example:
+ * <ul>
+ *  <li>If currently pressed key produces latin keyval, some are
+ *   happy with that and will not search for other layouts. Others
+ *   do search anyway. This often results in multiple keys invoking
+ *   the same shortcut (when there are multiple layouts with
+ *   desired latin key in different positions). One example of
+ *   affected software is 'gedit'.</li>
+ *  <li>When they do search, some search all layouts, others
+ *   search only the previous layouts (and insist that latin layout
+ *   is installed before non-latin), some search for a first match,
+ *   some search for the "most latin" layout, etc.</li>
+ * </ul>
+ * To my understanding, no matter which of these dark magics is
+ * chosen, this always results in ugly corner cases, band-aided
+ * with dirty workarounds which fix something while breaking
+ * something else.
+ *
+ * For an example of how other software deals with all that mess, see
+ * QXcbKeyboard::lookupLatinKeysym() in Qt.
+ */
 boolean setKeyState (Event javaEvent, long event) {
 	long string = 0;
 	int length = 0;
@@ -1834,7 +2014,7 @@ boolean setKeyState (Event javaEvent, long event) {
 		group = GDK.gdk_key_event_get_layout(event);
 	} else {
 		GdkEventKey gdkEvent = new GdkEventKey ();
-		OS.memmove(gdkEvent, event, GdkEventKey.sizeof);
+		GTK3.memmove(gdkEvent, event, GdkEventKey.sizeof);
 		length = gdkEvent.length;
 		string = gdkEvent.string;
 		group = gdkEvent.group;
@@ -1873,8 +2053,8 @@ boolean setKeyState (Event javaEvent, long event) {
 
 				short [] keyCode = new short [1];
 				if (GTK.GTK4) {
-					keyCode[0] = (short) GDK.gdk_key_event_get_keycode(event);
-					javaEvent.keyCode = keyCode[0];
+					keyval[0] = (short) GDK.gdk_key_event_get_keyval(event);
+					javaEvent.keyCode = (int) GDK.gdk_keyval_to_unicode (keyval [0]);
 				} else {
 					GDK.gdk_event_get_keycode(event, keyCode);
 					if (GDK.gdk_keymap_translate_keyboard_state (keymap, keyCode[0],
@@ -1984,14 +2164,18 @@ long sizeRequestProc (long handle, long arg0, long user_data) {
  * @param snapshot the actual GtkSnapshot
  */
 void snapshotToDraw (long handle, long snapshot) {
-	GtkAllocation allocation = new GtkAllocation ();
+	GtkAllocation allocation = new GtkAllocation();
 	GTK.gtk_widget_get_allocation(handle, allocation);
 	long rect = Graphene.graphene_rect_alloc();
 	Graphene.graphene_rect_init(rect, 0, 0, allocation.width, allocation.height);
+
 	long cairo = GTK4.gtk_snapshot_append_cairo(snapshot, rect);
-	if (cairo != 0) gtk_draw(handle, cairo);
+	if (cairo != 0) {
+		Rectangle bounds = new Rectangle(0, 0, allocation.width, allocation.height);
+		gtk4_draw(handle, cairo, bounds);
+	}
+
 	Graphene.graphene_rect_free(rect);
-	return;
 }
 
 long gtk_widget_get_window (long widget){
@@ -2162,58 +2346,64 @@ boolean translateTraversal (int event) {
 	return false;
 }
 
-long enterMotionScrollProc(long controller, long handle, double x, double y, long user_data) {
-	long result = 0;
+void enterMotionProc(long controller, double x, double y, long user_data) {
 	long event = GTK4.gtk_event_controller_get_current_event(controller);
 
 	switch ((int)user_data) {
 		case ENTER:
-			result = gtk_enter_notify_event(handle, event);
+			// Possible bug in GTK4, event = 0, therefore unable to access event information
+			gtk4_enter_event(controller, x, y, event);
 			break;
 		case MOTION:
-			result = gtk_motion_notify_event(handle, event);
+			gtk4_motion_event(controller, x, y, event);
 			break;
 		case MOTION_INVERSE:
-			result = 1;
-			break;
-		case SCROLL:
-			result = gtk_scroll_event(handle, event);
 			break;
 	}
-
-	return result;
 }
 
-long focusProc(long controller, long handle, long user_data) {
-	long result = 0;
+boolean scrollProc(long controller, double dx, double dy, long user_data) {
+	long event = GTK4.gtk_event_controller_get_current_event(controller);
+
+	switch ((int)user_data) {
+		case SCROLL:
+			return gtk4_scroll_event(controller, dx, dy, event);
+	}
+
+	return false;
+}
+
+void focusProc(long controller, long user_data) {
 	long event = GTK4.gtk_event_controller_get_current_event(controller);
 
 	switch ((int)user_data) {
 		case FOCUS_IN:
-			result = gtk_focus_in_event(handle, event);
+			gtk4_focus_enter_event(controller, event);
 			break;
 		case FOCUS_OUT:
-			result = gtk_focus_out_event(handle, event);
+			gtk4_focus_leave_event(controller, event);
 			break;
 	}
-
-	return result;
 }
 
-long keyPressReleaseProc(long controller, long handle, int keyval, int keycode, int state, long user_data) {
-	long result = 0;
+void windowActiveProc(long handle, long user_data) {
+	long eventType = GTK.gtk_window_is_active(handle) ? SWT.FocusIn:SWT.FocusOut;
+
+	gtk4_focus_window_event(handle, eventType);
+}
+
+boolean keyPressReleaseProc(long controller, int keyval, int keycode, int state, long user_data) {
 	long event = GTK4.gtk_event_controller_get_current_event(controller);
 
 	switch ((int)user_data) {
 		case KEY_PRESSED:
-			result = gtk_key_press_event(handle, event);
-			break;
+			return gtk4_key_press_event(controller, keyval, keycode, state, event);
 		case KEY_RELEASED:
-			result = gtk_key_release_event(handle, event);
+			gtk4_key_release_event(controller, keyval, keycode, state, event);
 			break;
 	}
 
-	return result;
+	return false;
 }
 
 void gesturePressReleaseProc(long gesture, int n_press, double x, double y, long user_data) {
@@ -2229,23 +2419,25 @@ void gesturePressReleaseProc(long gesture, int n_press, double x, double y, long
 	}
 }
 
-long leaveProc(long controller, long handle, long user_data) {
-	long result = 0;
+void leaveProc(long controller, long handle, long user_data) {
 	long event = GTK4.gtk_event_controller_get_current_event(controller);
 
 	switch ((int)user_data) {
 		case LEAVE:
-			result = gtk_leave_notify_event(handle, event);
+			// Possible bug in GTK4, event = 0, therefore unable to access event information
+			gtk4_leave_event(controller, event);
 			break;
 	}
-
-	return result;
 }
 
 long notifyProc (long object, long arg0, long user_data) {
 	switch ((int)user_data) {
 		case DPI_CHANGED: return dpiChanged(object, arg0);
 		case NOTIFY_STATE: return notifyState(object, arg0);
+		case NOTIFY_DEFAULT_HEIGHT:
+		case NOTIFY_DEFAULT_WIDTH:
+		case NOTIFY_MAXIMIZED:
+			return gtk_size_allocate(object, 0);
 	}
 	return 0;
 }
@@ -2322,12 +2514,11 @@ long windowProc (long handle, long arg0, long user_data) {
 		case MOVE_FOCUS: return gtk_move_focus (handle, arg0);
 		case POPULATE_POPUP: return gtk_populate_popup (handle, arg0);
 		case SCROLL_EVENT:	return gtk_scroll_event (handle, arg0);
-		case SHOW_HELP: return gtk_show_help (handle, arg0);
+		case SHOW_HELP: return gtk3_show_help(handle, arg0);
 		case SIZE_ALLOCATE: return gtk_size_allocate (handle, arg0);
 		case TOGGLED: return gtk_toggled (handle, arg0);
 		case UNMAP_EVENT: return gtk_unmap_event (handle, arg0);
 		case WINDOW_STATE_EVENT: return gtk_window_state_event (handle, arg0);
-		case ROW_DELETED: return gtk_row_deleted (handle, arg0);
 		default: return 0;
 	}
 }
@@ -2343,7 +2534,6 @@ long windowProc (long handle, long arg0, long arg1, long user_data) {
 		case SWITCH_PAGE: return gtk_switch_page(handle, arg0, (int)arg1);
 		case TEST_COLLAPSE_ROW: return gtk_test_collapse_row (handle, arg0, arg1);
 		case TEST_EXPAND_ROW: return gtk_test_expand_row(handle, arg0, arg1);
-		case ROW_INSERTED: return gtk_row_inserted (handle, arg0, arg1);
 		case ROW_HAS_CHILD_TOGGLED: return gtk_row_has_child_toggled(handle, arg0, arg1);
 		default: return 0;
 	}
@@ -2407,6 +2597,36 @@ void gtk_container_set_border_width (long handle, int border_width) {
 		GTK.gtk_widget_set_margin_end(handle, border_width);
 	} else {
 		GTK3.gtk_container_set_border_width (handle, border_width);
+	}
+}
+
+void setToolTipText(long tipWidget, String string) {
+	byte[] buffer = null;
+	if (string != null && !string.isEmpty()) {
+		char[] chars = fixMnemonic(string, false, true);
+		buffer = Converter.wcsToMbcs(chars, true);
+	}
+
+	GTK.gtk_widget_set_tooltip_text(tipWidget, buffer);
+}
+
+void gtk_widget_size_allocate (long widget, GtkAllocation allocation, int baseline) {
+	if (GTK.GTK4) {
+		GTK4.gtk_widget_size_allocate(widget, allocation, baseline);
+	} else {
+		GTK3.gtk_widget_size_allocate(widget, allocation);
+	}
+}
+
+void notifyCreationTracker() {
+	if (WidgetSpy.isEnabled) {
+		WidgetSpy.getInstance().widgetCreated(this);
+	}
+}
+
+void notifyDisposalTracker() {
+	if (WidgetSpy.isEnabled) {
+		WidgetSpy.getInstance().widgetDisposed(this);
 	}
 }
 

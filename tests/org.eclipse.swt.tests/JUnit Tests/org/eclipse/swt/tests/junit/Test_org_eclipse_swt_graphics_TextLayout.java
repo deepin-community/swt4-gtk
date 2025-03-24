@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2015, 2020 IBM Corporation and others.
+ * Copyright (c) 2015, 2022 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -17,10 +17,14 @@ package org.eclipse.swt.tests.junit;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+
+import java.util.Arrays;
 
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.graphics.Color;
 import org.eclipse.swt.graphics.Font;
 import org.eclipse.swt.graphics.GC;
 import org.eclipse.swt.graphics.Image;
@@ -54,14 +58,9 @@ public void test_getLevel() {
 	assertEquals(1, layout.getLevel(6));
 	if (!SwtTestUtil.isWindows) assertEquals(2, layout.getLevel(7));  // skipping windows due to fix for bug 565526
 	assertEquals(0, layout.getLevel(9));
-	try {
-		layout.getLevel(-1);
-		fail("invalid range expection expected");
-	} catch (Exception e) {}
-	try {
-		layout.getLevel(text.length() + 1);
-		fail("invalid range expection expected");
-	} catch (Exception e) {}
+	assertThrows("invalid range expection expected", IllegalArgumentException.class, () -> layout.getLevel(-1));
+	assertThrows("invalid range expection expected", IllegalArgumentException.class,
+			() -> layout.getLevel(text.length() + 1));
 	layout.dispose();
 }
 
@@ -119,11 +118,9 @@ public void test_getSegments() {
 	//Bug 241482 comment 64
 	layout.setText("\nAB");
 	layout.setSegments(new int[] {0, 1, 3});
-	int[] expected = new int[] {0, 1, 3};
+	int[] expected = {0, 1, 3};
 	int[] offsets = layout.getLineOffsets();
-	for (int i = 0; i < offsets.length; i++) {
-		assertEquals(" i = " + i, expected[i], offsets[i]);
-	}
+	assertArrayEquals(expected, offsets);
 	layout.dispose();
 	layout = new TextLayout(display);
 
@@ -278,42 +275,39 @@ public void test_getSegmentsChars() {
 
 @Test
 public void test_getLineOffsets() {
+	/**
+	 * While computing lineCount, Mac doesn't consider the trailing '\n',
+	 * causing a different return value than other OS.
+	 * Test has been adapted to work on Mac as well.
+	 */
 	TextLayout layout = new TextLayout(display);
-	String text = "0123456\n890123\n";
-	layout.setText(text);
-	int[] offsets = layout.getLineOffsets();
-	int[] expected = new int [] {0, 8, 15, 15};
-	for (int i = 0; i < offsets.length; i++) {
-		assertEquals(expected[i], offsets[i]);
+	try {
+		String text = "0123456\n890123\n";
+		layout.setText(text);
+		int[] offsets = layout.getLineOffsets();
+		int[] expected = (SwtTestUtil.isCocoa) ? new int [] {0, 8, 15} : new int [] {0, 8, 15, 15} ;
+		assertArrayEquals(expected, offsets);
+		layout.setText("");
+		offsets = layout.getLineOffsets();
+		expected = new int [] {0, 0};
+		assertArrayEquals(expected, offsets);
+		layout.setText("\n");
+		offsets = layout.getLineOffsets();
+		expected = (SwtTestUtil.isCocoa) ? new int [] {0, 1} : new int [] {0, 1, 1};
+		assertArrayEquals(expected, offsets);
+		layout.setText("WMWM");
+		int width = layout.getBounds().width;
+		layout.setWidth(width / 4 + 1);
+		offsets = layout.getLineOffsets();
+		expected = new int [] {0, 1, 2, 3, 4};
+		assertArrayEquals(expected, offsets);
+		layout.setWidth(width / 2 + 1);
+		offsets = layout.getLineOffsets();
+		expected = new int [] {0, 2, 4};
+		assertArrayEquals(expected, offsets);
+	} finally {
+		layout.dispose();
 	}
-	layout.setText("");
-	offsets = layout.getLineOffsets();
-	expected = new int [] {0, 0};
-	for (int i = 0; i < offsets.length; i++) {
-		assertEquals(expected[i], offsets[i]);
-	}
-	layout.setText("\n");
-	offsets = layout.getLineOffsets();
-	expected = new int [] {0, 1, 1};
-	for (int i = 0; i < offsets.length; i++) {
-		assertEquals(expected[i], offsets[i]);
-	}
-	layout.setText("WMWM");
-	int width = layout.getBounds().width;
-	layout.setWidth(width / 4 + 1);
-	offsets = layout.getLineOffsets();
-	expected = new int [] {0, 1, 2, 3, 4};
-	for (int i = 0; i < offsets.length; i++) {
-		assertEquals(expected[i], offsets[i]);
-	}
-	layout.setWidth(width / 2 + 1);
-	offsets = layout.getLineOffsets();
-	expected = new int [] {0, 2, 4};
-	for (int i = 0; i < offsets.length; i++) {
-		assertEquals(expected[i], offsets[i]);
-	}
-
-	layout.dispose();
 }
 
 @Test
@@ -336,14 +330,9 @@ public void test_getLineIndex() {
 	assertEquals(1, layout.getLineIndex(12));
 	assertEquals(1, layout.getLineIndex(14));
 	assertEquals(2, layout.getLineIndex(15));
-	try {
-		layout.getLineIndex(-1);
-		fail("invalid range expection expected");
-	} catch (Exception e) {}
-	try {
-		layout.getLineIndex(text.length() + 1);
-		fail("invalid range expection expected");
-	} catch (Exception e) {}
+	assertThrows("invalid range expection expected", IllegalArgumentException.class, ()-> layout.getLineIndex(-1));
+	assertThrows("invalid range expection expected", IllegalArgumentException.class, ()->
+		layout.getLineIndex(text.length() + 1));
 	layout.dispose();
 }
 
@@ -382,14 +371,8 @@ public void test_getLineBounds() {
 	assertEquals(100, newRect1.x);
 	assertEquals(bounds.height, rect0.height + rect1.height + rect2.height);
 
-	try {
-		layout.getLineBounds(-1);
-		fail("invalid range expection expected");
-	} catch (Exception e) {}
-	try {
-		layout.getLineBounds(3);
-		fail("invalid range expection expected");
-	} catch (Exception e) {}
+	assertThrows("invalid range expection expected", IllegalArgumentException.class, () -> layout.getLineBounds(-1));
+	assertThrows("invalid range expection expected", IllegalArgumentException.class, () -> layout.getLineBounds(3));
 	layout.dispose();
 }
 
@@ -405,12 +388,12 @@ public void test_setStyle() {
 	layout = new TextLayout (display);
 	layout.setText("aabbcc");
 	layout.setStyle (s1, 2, 3);
-	assertEquals(null, layout.getStyle(0));
-	assertEquals(null, layout.getStyle(1));
+	assertNull(layout.getStyle(0));
+	assertNull(layout.getStyle(1));
 	assertEquals(s1, layout.getStyle(2));
 	assertEquals(s1, layout.getStyle(3));
-	assertEquals(null, layout.getStyle(4));
-	assertEquals(null, layout.getStyle(5));
+	assertNull(layout.getStyle(4));
+	assertNull(layout.getStyle(5));
 	layout.dispose();
 
 	layout = new TextLayout (display);
@@ -530,12 +513,12 @@ public void test_setStyle() {
 	layout.setStyle (s2, 2, 3);
 	layout.setStyle (s3, 4, 5);
 	layout.setStyle (null, 0, 5);
-	assertEquals(null, layout.getStyle(0));
-	assertEquals(null, layout.getStyle(1));
-	assertEquals(null, layout.getStyle(2));
-	assertEquals(null, layout.getStyle(3));
-	assertEquals(null, layout.getStyle(4));
-	assertEquals(null, layout.getStyle(5));
+	assertNull(layout.getStyle(0));
+	assertNull(layout.getStyle(1));
+	assertNull(layout.getStyle(2));
+	assertNull(layout.getStyle(3));
+	assertNull(layout.getStyle(4));
+	assertNull(layout.getStyle(5));
 	layout.dispose();
 
 	layout = new TextLayout (display);
@@ -557,12 +540,12 @@ public void test_setStyle() {
 	layout.setStyle (s1, 2, 2);
 	layout.setStyle (s2, 2, 3);
 	layout.setStyle (null, 3, 3);
-	assertEquals(null, layout.getStyle(0));
-	assertEquals(null, layout.getStyle(1));
+	assertNull(layout.getStyle(0));
+	assertNull(layout.getStyle(1));
 	assertEquals(s2, layout.getStyle(2));
-	assertEquals(null, layout.getStyle(3));
-	assertEquals(null, layout.getStyle(4));
-	assertEquals(null, layout.getStyle(5));
+	assertNull(layout.getStyle(3));
+	assertNull(layout.getStyle(4));
+	assertNull(layout.getStyle(5));
 	layout.dispose();
 }
 
@@ -798,10 +781,7 @@ public void test_getLineSpacing() {
 	assertEquals(Short.MAX_VALUE, layout.getSpacing());
 	layout.setSpacing(50);
 	assertEquals(50, layout.getSpacing());
-	try {
-		layout.setSpacing(-1);
-		fail("invalid range expection expected");
-	} catch (Exception e) {}
+	assertThrows("invalid range expection expected", IllegalArgumentException.class, ()->layout.setSpacing(-1));
 	assertEquals(50, layout.getSpacing());
 	layout.setSpacing(0);
 	assertEquals(0, layout.getSpacing());
@@ -903,16 +883,13 @@ public void test_getOffset() {
 @Test
 public void test_getTabs() {
 	TextLayout layout = new TextLayout(display);
-	assertEquals(null, layout.getTabs());
-	int[] tabs = new int[] {8, 18, 28, 38, 50, 80};
+	assertNull(layout.getTabs());
+	int[] tabs = {8, 18, 28, 38, 50, 80};
 	layout.setTabs(tabs);
 	int[] result = layout.getTabs();
-	assertEquals(tabs.length, result.length);
-	for (int i = 0; i < result.length; i++) {
-		assertEquals("pos: " + i, tabs[i], result[i]);
-	}
+	assertArrayEquals(tabs, result);
 	layout.setTabs(null);
-	assertEquals(null, layout.getTabs());
+	assertNull(layout.getTabs());
 	layout.dispose();
 }
 
@@ -1018,6 +995,224 @@ public void test_bug568740_multilineTextStyle() {
 			layout.dispose();
 		if (gc != null)
 			gc.dispose();
+		if (image != null)
+			image.dispose();
+		if (font != null)
+			font.dispose();
+	}
+}
+
+/**
+ * Draw the layout on a new image and return it - note the Image needs to be
+ * disposed by caller.
+ */
+private Image draw(TextLayout layout, int antialias) {
+	GC gc = null;
+	try {
+		Image image = new Image(display, layout.getBounds());
+		gc = new GC(image);
+		gc.setBackground(display.getSystemColor(SWT.COLOR_WHITE));
+		gc.fillRectangle(image.getBounds());
+		gc.setAntialias(antialias);
+
+		layout.draw(gc, 0, 0);
+		return image;
+	} finally {
+		if (gc != null)
+			gc.dispose();
+	}
+}
+
+/**
+ * Draw the input and return a 2d array (indexed [x][y]) of all the pixel
+ * values.
+ */
+private int[][] draw(String input, int antialias) {
+	Font font = null;
+	Image image = null;
+	TextLayout layout = null;
+	try {
+		// These tests need to use fixed width font to make sure that kerning doesn't
+		// make repeated characters overlap.
+		font = new Font(display, SwtTestUtil.testFontNameFixedWidth, 16, SWT.NORMAL);
+
+		layout = new TextLayout(display);
+		layout.setFont(font);
+		layout.setText(input);
+		image = draw(layout, antialias);
+//		SwtTestUtil.debugDisplayImage(image);
+		assertTrue("Found no drawn pixels, nothing at all was drawn!",
+		SwtTestUtil.hasPixelNotMatching(image, display.getSystemColor(SWT.COLOR_WHITE), image.getBounds()));
+		return SwtTestUtil.getAllPixels(image);
+
+	} finally {
+		if (layout != null)
+			layout.dispose();
+		if (image != null)
+			image.dispose();
+		if (font != null)
+			font.dispose();
+	}
+}
+
+private void check(String input, int repeat, int antialias) {
+	// First draw the short version of the text
+	int[][] pixelsOnce = draw(input, antialias);
+	// Then draw it repeated however many times needed
+	int[][] pixelsRepeated = draw(input.repeat(repeat), antialias);
+
+	// Then compare the drawn short version again and again with each iteration of the repeated version
+	for (int i = 0; i < repeat; i++) {
+		// Ignore the first and last column in the short version because Windows will tend
+		// to draw characters together a little even with fixed width fonts.
+		for (int x = 1; x < pixelsOnce.length - 1; x++) {
+			try {
+				int[] extepectedColumn = pixelsOnce[x];
+				int[] actualColumn = pixelsRepeated[x + pixelsOnce.length * i];
+				if (Arrays.equals(extepectedColumn, actualColumn)) {
+					continue;
+				}
+				for (int y = 0; y < extepectedColumn.length; y++) {
+					SwtTestUtil.assertSimilarBrightness("", extepectedColumn[y], actualColumn[y]);
+				}
+			} catch (AssertionError e) {
+				// When this assertion fails it can be useful to debug it by displaying the two
+				// image parts so that the SwtTestUtil.assertSimilarBrightness can be tuned if needed
+				// debugCompareTwoImages(pixelsOnce, pixelsRepeated, i);
+				throw e;
+			}
+		}
+	}
+
+	// Make sure there are no leftover pixels
+	assertEquals(repeat * pixelsOnce.length, pixelsRepeated.length);
+}
+
+// Only used when debugging, see catch block above
+@SuppressWarnings("unused")
+private void debugCompareTwoImages(int[][] pixelsOnce, int[][] pixelsRepeated, int offsetInRepeated) {
+	Image expected = SwtTestUtil.createImage(pixelsOnce, 0, pixelsOnce.length);
+	try {
+		Image actual = SwtTestUtil.createImage(pixelsRepeated, pixelsOnce.length * offsetInRepeated,
+				pixelsOnce.length);
+		try {
+			SwtTestUtil.debugDisplayDifferences(expected, actual);
+		} finally {
+			actual.dispose();
+		}
+	} finally {
+		expected.dispose();
+	}
+}
+
+private void check(String input, int repeat) {
+	// Run with antialias in multiple modes as it causes different rendering engines
+	// to be used (GDI or GDI+)
+	check(input, repeat, SWT.DEFAULT);
+	check(input, repeat, SWT.ON);
+	check(input, repeat, SWT.OFF);
+}
+
+
+/**
+ * Bug 23406 - [Win32] TextLayout does not draw lines that are too long
+ *
+ * This code tests org.eclipse.swt.graphics.TextLayout.splitLongRun(StyleItem) - however
+ * to make it easier to debug the test to see what is happening, try reducing
+ * org.eclipse.swt.graphics.TextLayout.MAX_RUN_LENGTH and MAX_SEARCH_RUN_BREAK
+ * to smaller values so that the splitting happens over shorter runs of text.
+ */
+@Test
+public void test_bug23406_longLines() {
+	if (!SwtTestUtil.isWindows) {
+		// TODO This test was written for the platform specific parts of TextLayout and
+		// on Linux (and possibly mac)
+		// the size of images needed to run the tests causes failures.
+		if (SwtTestUtil.verbose) {
+			System.out.println(
+					"Excluded test_bug23406_longLines(org.eclipse.swt.tests.junit.Test_org_eclipse_swt_graphics_TextLayout).");
+		}
+		return;
+	}
+
+	// These first two checks really test the test works fine and
+	// should pass with or without the fix to Bug 23406
+	check("A", 100);
+	check("AV", 100);
+
+	check("A", 100000);
+	check("A A", 30000);
+	// This is a single code point, if this gets split then the drawing is corrupted
+	String crocodile = "\uD83D\uDC0A";
+	check(crocodile, 30000);
+	// This contains single glyphs requiring multiple characters, if those groups of
+	// characters gets split then the drawing is corrupted
+	// "This is the best computer program." translated into Thai:
+	// "นี่คือโปรแกรมคอมพิวเตอร์ที่ดีที่สุด" then encoded so that java file encoding
+	// errors can't corrupt it.
+	String bestProgramInThai = "\u0E19\u0E35\u0E48\u0E04\u0E37\u0E2D\u0E42\u0E1B\u0E23\u0E41\u0E01\u0E23\u0E21\u0E04"
+			+ "\u0E2D\u0E21\u0E1E\u0E34\u0E27\u0E40\u0E15\u0E2D\u0E23\u0E4C\u0E17\u0E35\u0E48\u0E14\u0E35\u0E17\u0E35\u0E48\u0E2A\u0E38\u0E14";
+	check(bestProgramInThai, 1000);
+}
+
+@Test
+public void test_Bug579335_win32_StyledText_LongLine() {
+	if (!SwtTestUtil.isWindows) {
+		// TODO This test was written for the platform specific parts of TextLayout and
+		// on Linux (and possibly mac)
+		// the size of images needed to run the tests causes failures.
+		if (SwtTestUtil.verbose) {
+			System.out.println(
+					"Excluded test_Bug579335_win32_StyledText_LongLine(org.eclipse.swt.tests.junit.Test_org_eclipse_swt_graphics_TextLayout).");
+		}
+		return;
+	}
+
+	Font font = null;
+	Image image = null;
+	TextLayout layout = null;
+
+	try {
+		font = new Font(display, SwtTestUtil.testFontName, 16, SWT.NORMAL);
+
+		layout = new TextLayout(display);
+		layout.setFont(font);
+		layout.setText("a".repeat(33000));
+		Color red = display.getSystemColor(SWT.COLOR_RED);
+		Color white = display.getSystemColor(SWT.COLOR_WHITE);
+		Color green = display.getSystemColor(SWT.COLOR_GREEN);
+		TextStyle redStyle = new TextStyle(font, red, white);
+		TextStyle greenStyle = new TextStyle(font, green, white);
+
+		image = draw(layout, SWT.DEFAULT);
+
+		// reset for next test
+		image.dispose();
+		layout.setStyle(redStyle, 7, 7);
+		layout.setStyle(greenStyle, 8, 8 + 32909 - 1);
+
+		image = draw(layout, SWT.DEFAULT);
+
+		// reset for next test
+		image.dispose();
+		layout.setStyle(null, 0, 33000 - 1);
+
+		layout.setStyle(greenStyle, 2, 2 + 16000 - 1);
+		image = draw(layout, SWT.DEFAULT);
+
+		// reset for next test
+		image.dispose();
+		layout.setStyle(null, 0, 33000 - 1);
+
+		layout.setStyle(redStyle, 0, 0 + 1 - 1);
+		layout.setStyle(greenStyle, 1, 1 + 32916 - 1);
+		image = draw(layout, SWT.DEFAULT);
+
+//		 SwtTestUtil.debugDisplayImage(image);
+	} finally {
+
+		if (layout != null)
+			layout.dispose();
 		if (image != null)
 			image.dispose();
 		if (font != null)

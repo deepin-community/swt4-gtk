@@ -189,6 +189,7 @@ public class CTabFolder extends Composite {
 	boolean selectionGradientVertical;
 	Color selectionForeground;
 	Color selectionBackground;
+	int selectionHighlightBarThickness = 2;
 
 	/* Unselected item appearance */
 	Color[] gradientColors;
@@ -230,6 +231,7 @@ public class CTabFolder extends Composite {
 	Control[] controls;
 	int[] controlAlignments;
 	Rectangle[] controlRects;
+	Rectangle[] bkImageBounds;
 	Image[] controlBkImages;
 
 	int updateFlags;
@@ -742,6 +744,14 @@ Image createButtonImage(Display display, int button) {
 	image = new Image(display, new AutoScaleImageDataProvider(display, imageData, DPIUtil.getDeviceZoom()));
 	return image;
 }
+
+private void notifyItemCountChange() {
+	CTabFolderEvent e = new CTabFolderEvent(this);
+	for (CTabFolder2Listener listener : folderListeners) {
+		listener.itemsCount(e);
+	}
+}
+
 void createItem (CTabItem item, int index) {
 	if (0 > index || index > getItemCount ())SWT.error (SWT.ERROR_INVALID_RANGE);
 	item.parent = this;
@@ -767,6 +777,7 @@ void createItem (CTabItem item, int index) {
 	} else {
 		updateFolder(REDRAW_TABS);
 	}
+	notifyItemCountChange();
 }
 void destroyItem (CTabItem item) {
 	if (inDispose) return;
@@ -787,6 +798,7 @@ void destroyItem (CTabItem item) {
 		updateButtons();
 		setButtonBounds();
 		redraw();
+		notifyItemCountChange();
 		return;
 	}
 
@@ -818,6 +830,7 @@ void destroyItem (CTabItem item) {
 
 	requestLayout();
 	updateFolder(UPDATE_TAB_HEIGHT | REDRAW_TABS);
+	notifyItemCountChange();
 }
 
 /**
@@ -1062,7 +1075,6 @@ public int getMinimumCharacters() {
 
 /**
  * Returns <code>true</code> if the receiver is maximized.
- * <p>
  *
  * @return the receiver's maximized state
  *
@@ -1630,7 +1642,6 @@ void onKeyDown (Event event) {
 						Rectangle chevronRect = chevronItem.getBounds();
 						chevronRect = event.display.map(chevronTb, this, chevronRect);
 						CTabFolderEvent e = new CTabFolderEvent(this);
-						e.widget = this;
 						e.time = event.time;
 						e.x = chevronRect.x;
 						e.y = chevronRect.y;
@@ -1952,7 +1963,6 @@ void onMouse(Event event) {
 					redraw(item.closeRect.x, item.closeRect.y, item.closeRect.width, item.closeRect.height, false);
 					if (!selected) return;
 					CTabFolderEvent e = new CTabFolderEvent(this);
-					e.widget = this;
 					e.time = event.time;
 					e.item = item;
 					e.doit = true;
@@ -2015,7 +2025,6 @@ void onPageTraversal(Event event) {
 					Rectangle chevronRect = chevronItem.getBounds();
 					chevronRect = event.display.map(chevronTb, this, chevronRect);
 					CTabFolderEvent e = new CTabFolderEvent(this);
-					e.widget = this;
 					e.time = event.time;
 					e.x = chevronRect.x;
 					e.y = chevronRect.y;
@@ -2150,7 +2159,6 @@ void onSelection(Event event) {
 	}
 	if (event.widget == maxItem) {
 		CTabFolderEvent e = new CTabFolderEvent(this);
-		e.widget = CTabFolder.this;
 		e.time = event.time;
 		for (CTabFolder2Listener folderListener : folderListeners) {
 			if (maximized) {
@@ -2161,7 +2169,6 @@ void onSelection(Event event) {
 		}
 	} else if (event.widget == minItem) {
 		CTabFolderEvent e = new CTabFolderEvent(this);
-		e.widget = CTabFolder.this;
 		e.time = event.time;
 		for (CTabFolder2Listener folderListener : folderListeners) {
 			if (minimized) {
@@ -2174,7 +2181,6 @@ void onSelection(Event event) {
 		Rectangle chevronRect = chevronItem.getBounds();
 		chevronRect = event.display.map(chevronTb, this, chevronRect);
 		CTabFolderEvent e = new CTabFolderEvent(this);
-		e.widget = this;
 		e.time = event.time;
 		e.x = chevronRect.x;
 		e.y = chevronRect.y;
@@ -2351,7 +2357,7 @@ public void reskin(int flags) {
 public void setBackground (Color color) {
 	super.setBackground(color);
 	renderer.createAntialiasColors(); //TODO: need better caching strategy
-	updateBkImages();
+	updateBkImages(true);
 	redraw();
 }
 /**
@@ -2607,11 +2613,15 @@ void setButtonBounds() {
 				controls[i].setBounds(rects[i].x, rects[i].y, rects[i].width, headerHeight);
 			}
 		}
-		if (!changed && !rects[i].equals(controlRects[i])) changed = true;
+		if (!changed && !rects[i].equals(controlRects[i])) {
+			changed = true; // also updateBkImages after translation
+		}
 	}
 	ignoreResize = false;
 	controlRects = rects;
-	if (changed || hovering) updateBkImages();
+	if (changed || hovering) {
+		updateBkImages(false);
+	}
 }
 
 /**
@@ -3466,6 +3476,27 @@ public void setSelectionForeground (Color color) {
 }
 
 /**
+ * Sets the thickness of the highlight bar on the selected tab. The highlight bar is drawn in the top margin of the selected tab.
+ *
+ * @param thickness the desired thickness. Must be positive and lower than {@link CTabFolderRenderer#ITEM_TOP_MARGIN} (that is either {@code 0} {@code 1} or {@code 2} at the moment),for correct results.
+ *                  Set to {@code 0} to not draw a highlight bar.
+ * @exception SWTException <ul>
+ *    <li>ERROR_WIDGET_DISPOSED - if the receiver has been disposed</li>
+ *    <li>ERROR_THREAD_INVALID_ACCESS - if not called from the thread that created the receiver</li>
+ *    <li>ERROR_INVALID_ARGUMENT - if the parameter value is invalid</li>
+ * </ul>
+ * @implNote Default {@link CTabFolderRenderer} currently ignores this setting if {@link #getSimple()} is {@code true}.
+ * @since 3.121
+ */
+public void setSelectionBarThickness(int thickness) {
+	checkWidget();
+	if (thickness < 0) {
+		SWT.error(SWT.ERROR_INVALID_ARGUMENT);
+	}
+	this.selectionHighlightBarThickness = thickness;
+}
+
+/**
  * Sets the shape that the CTabFolder will use to render itself.
  *
  * @param simple <code>true</code> if the CTabFolder should render itself in a simple, traditional style
@@ -3906,8 +3937,14 @@ void runUpdate() {
 	}
 }
 
-void updateBkImages() {
+void updateBkImages(boolean colorChanged) {
 	if (controls != null && controls.length > 0) {
+		if (bkImageBounds==null) {
+			bkImageBounds=new Rectangle[controls.length];
+		}
+		if (bkImageBounds.length !=controls.length) {
+			bkImageBounds=new Rectangle[controls.length];
+		}
 		for (int i = 0; i < controls.length; i++) {
 			Control control = controls[i];
 			if (!control.isDisposed()) {
@@ -3922,6 +3959,7 @@ void updateBkImages() {
 					int height = this.getSize().y;
 					boolean wrapped = onBottom ? bounds.y + bounds.height < height - tabHeight : bounds.y > tabHeight;
 					if (wrapped || gradientColors == null) {
+						bkImageBounds[i]=null;
 						control.setBackgroundImage(null);
 						control.setBackground(getBackground());
 					} else {
@@ -3934,13 +3972,17 @@ void updateBkImages() {
 							bounds.y = -1;
 						}
 						bounds.x = 0;
-						if (controlBkImages[i] != null) controlBkImages[i].dispose();
-						controlBkImages[i] = new Image(control.getDisplay(), bounds);
-						GC gc = new GC(controlBkImages[i]);
-						renderer.draw(CTabFolderRenderer.PART_BACKGROUND, 0, bounds, gc);
-						gc.dispose();
-						control.setBackground(null);
-						control.setBackgroundImage(controlBkImages[i]);
+						// do not redraw when only translated:
+						if (colorChanged || !bounds.equals(bkImageBounds[i])) {
+							bkImageBounds[i] = bounds;
+							if (controlBkImages[i] != null) controlBkImages[i].dispose();
+							controlBkImages[i] = new Image(control.getDisplay(), bounds);
+							GC gc = new GC(controlBkImages[i]);
+							renderer.draw(CTabFolderRenderer.PART_BACKGROUND, 0, bounds, gc);
+							gc.dispose();
+							control.setBackground(null);
+							control.setBackgroundImage(controlBkImages[i]);
+						}
 					}
 				}
 			}
@@ -4176,7 +4218,7 @@ public void setHighlightEnabled(boolean enabled) {
  * highlighted.
  *
  * @return <code>true</code> if the selected tab is rendered as
- *         highlighted
+ *         highlighted.
  *
  * @exception SWTException
  *                <ul>

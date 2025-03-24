@@ -27,4 +27,8 @@ public int add_DOMContentLoaded(IUnknown handler, long[] token) {
 	return COM.VtblCall(64, address, handler.getAddress(), token);
 }
 
+public int get_CookieManager(long[] cookieManager) {
+	return COM.VtblCall(66, address, cookieManager);
+}
+
 }

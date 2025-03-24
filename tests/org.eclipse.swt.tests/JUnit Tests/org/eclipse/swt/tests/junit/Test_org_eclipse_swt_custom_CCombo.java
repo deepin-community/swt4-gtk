@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2020 IBM Corporation and others.
+ * Copyright (c) 2000, 2021 IBM Corporation and others.
  *
  * This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
@@ -17,6 +17,7 @@ package org.eclipse.swt.tests.junit;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
@@ -29,6 +30,7 @@ import org.eclipse.swt.events.SelectionEvent;
 import org.eclipse.swt.events.SelectionListener;
 import org.eclipse.swt.graphics.Color;
 import org.eclipse.swt.graphics.Point;
+import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Text;
 import org.junit.Before;
@@ -47,6 +49,11 @@ public void setUp() {
 	super.setUp();
 	ccombo = new CCombo(shell, 0);
 	setWidget(ccombo);
+}
+
+@Override
+protected Composite getElementExpectedToHaveFocusAfterSetFocusOnParent(Composite visibleChild) {
+	return visibleChild.getParent();
 }
 
 @Override
@@ -84,7 +91,7 @@ public void test_copy() {
 	ccombo.copy();
 	ccombo.setSelection(new Point(0,0));
 	ccombo.paste();
-	assertTrue(":a:", ccombo.getText().equals("23123456"));
+	assertEquals(":a:", "23123456", ccombo.getText());
 }
 
 @Test
@@ -100,7 +107,7 @@ public void test_cut() {
 	ccombo.setText("123456");
 	ccombo.setSelection(new Point(1,3));
 	ccombo.cut();
-	assertTrue(":a:", ccombo.getText().equals("1456"));
+	assertEquals(":a:", "1456", ccombo.getText());
 }
 
 @Override
@@ -115,7 +122,7 @@ public void test_getChildren() {
 
 @Test
 @Override
-public void test_isFocusControl() throws InterruptedException {
+public void test_isFocusControl() {
 	if (SwtTestUtil.isGTK) {
 		// TODO forceFocus returns false, while isFocusControl returns true
 		assertFalse(control.isFocusControl());
@@ -137,9 +144,9 @@ public void test_paste() {
 	ccombo.setText("123456");
 	ccombo.setSelection(new Point(1,3));
 	ccombo.cut();
-	assertTrue(":a:", ccombo.getText().equals("1456"));
+	assertEquals(":a:", "1456", ccombo.getText());
 	ccombo.paste();
-	assertTrue(":a:", ccombo.getText().equals("123456"));
+	assertEquals(":a:", "123456", ccombo.getText());
 }
 
 @Override
@@ -190,7 +197,7 @@ public void test_setFocus() {
 		assertFalse("Expect false wehn not visible and not enabled", ccombo.setFocus());
 		ccombo.setEnabled(true);
 		ccombo.setVisible(true);
-		processEvents(0, null);
+		SwtTestUtil.processEvents();
 		if(ccombo.isFocusControl())
 			assertTrue("Set focus error", ccombo.setFocus());
 
@@ -198,7 +205,7 @@ public void test_setFocus() {
 			ccombo.setEnabled(true);
 			ccombo.setVisible(true);
 			ccombo.setFocus();
-			processEvents(0, null);
+			SwtTestUtil.processEvents(100, () -> ccombo.isFocusControl());
 			assertTrue(ccombo.isFocusControl());
 			Control focusControl = ccombo.getDisplay().getFocusControl();
 			assertTrue(focusControl instanceof Text);
@@ -247,7 +254,7 @@ public void test_setToolTipTextLjava_lang_String() {
 	String[] cases = {"", "fang", "fang0"};
 	for (int i = 0; i < cases.length; i++) {
 		ccombo.setText(cases[i]);
-		assertTrue(":a:" + i, ccombo.getText().equals(cases[i]));
+		assertEquals(":a:" + i, cases[i], ccombo.getText());
 	}
 }
 
@@ -382,12 +389,12 @@ public void test_clearSelection() {
 	for (int i = 0; i < number; i++)
 		ccombo.add("fred" + i);
 	ccombo.clearSelection();
-	assertTrue(":a:", ccombo.getSelection().equals(new Point(0, 0)));
+	assertEquals(":a:", new Point(0, 0), ccombo.getSelection());
 	ccombo.setSelection(new Point(0, 5));
-	assertTrue(":b:", ccombo.getSelection().equals(new Point(0, 0)));  //nothing is selected
+	assertEquals(":b:", new Point(0, 0), ccombo.getSelection());  //nothing is selected
 	ccombo.setText("some text");
 	ccombo.setSelection(new Point(0, 5));
-	assertTrue(":c:", ccombo.getSelection().equals(new Point(0, 5)));
+	assertEquals(":c:", new Point(0, 5), ccombo.getSelection());
 	ccombo.clearSelection();
 	assertEquals(":d:", ccombo.getSelection().x, ccombo.getSelection().y);
  }
@@ -467,7 +474,7 @@ public void test_getItemI() {
 		ccombo.add("fred" + i);
 	}
 	for (int i = 0; i < number; i++)
-		assertTrue(ccombo.getItem(i).equals("fred" + i));
+		assertEquals("fred" + i, ccombo.getItem(i));
 }
 
 @Test
@@ -478,9 +485,9 @@ public void test_getItems() {
 	ccombo.add("3");
 	String[] items = ccombo.getItems();
 	assertEquals(":a:",3, items.length);
-	assertTrue(":a:", items[0].equals("1"));
-	assertTrue(":a:", items[1].equals("2"));
-	assertTrue(":a:", items[2].equals("3"));
+	assertEquals(":a:", "1", items[0]);
+	assertEquals(":a:", "2", items[1]);
+	assertEquals(":a:", "3", items[2]);
 }
 
 @Test
@@ -488,7 +495,7 @@ public void test_getSelection() {
 	ccombo.setText("123456");
 	ccombo.setSelection(new Point(1,3));
 	ccombo.getSelection();
-	assertTrue(":a:", ccombo.getSelection().equals(new Point(1,3)));
+	assertEquals(":a:", new Point(1,3), ccombo.getSelection());
 }
 
 @Test
@@ -520,7 +527,7 @@ public void test_getStyle() {
 	int style = 0;
 	ccombo.setEditable(false);
 	style = ccombo.getStyle();
-	assertTrue((style & SWT.READ_ONLY) != 0);
+	assertNotEquals(0, (style & SWT.READ_ONLY));
 }
 
 @Test
@@ -528,7 +535,7 @@ public void test_getText() {
 	String[] cases = {"", "fred", "fredfred"};
 	for (int i = 0; i < cases.length; i++) {
 		ccombo.setText(cases[i]);
-		assertTrue(":a:" + String.valueOf(i), cases[i].equals(ccombo.getText()));
+		assertEquals(":a:" + String.valueOf(i), cases[i], ccombo.getText());
 	}
 }
 
@@ -768,7 +775,7 @@ public void test_setItemILjava_lang_String() {
 
 	ccombo.add("joe");
 	ccombo.setItem(0, "fang");
-	assertTrue("fang", ccombo.getItem(0).equals("fang"));
+	assertEquals("fang", "fang", ccombo.getItem(0));
 
 	assertThrows("No exception thrown for illegal index argument", IllegalArgumentException.class, () ->ccombo.setItem(4, "fang"));
 
@@ -806,10 +813,10 @@ public void test_setSelectionLorg_eclipse_swt_graphics_Point() {
 	for (int i = 0; i < number; i++)
 		ccombo.add("fang" + i);
 	ccombo.setSelection(new Point(0, 5));
-	assertTrue(":a:", ccombo.getSelection().equals(new Point(0, 0)));
+	assertEquals(":a:", new Point(0, 0), ccombo.getSelection());
 	ccombo.setText("some text");
 	ccombo.setSelection(new Point(0, 5));
-	assertTrue("Has not been implemented :b:", ccombo.getSelection().equals(new Point(0, 5)));
+	assertEquals("Has not been implemented :b:", new Point(0, 5), ccombo.getSelection());
 }
 
 @Test
@@ -827,21 +834,21 @@ public void test_setTextLjava_lang_String() {
 	String[] cases = {"", "fang", "fang0"};
 	for (int i = 0; i < cases.length; i++) {
 		ccombo.setText(cases[i]);
-		assertTrue(":a:" + i, ccombo.getText().equals(cases[i]));
+		assertEquals(":a:" + i, cases[i], ccombo.getText());
 	}
 	for (int i = 0; i < 5; i++) {
 		ccombo.add("fang");
 	}
 	for (int i = 0; i < cases.length; i++) {
 		ccombo.setText(cases[i]);
-		assertTrue(":b:" + i, ccombo.getText().equals(cases[i]));
+		assertEquals(":b:" + i, cases[i], ccombo.getText());
 	}
 	for (int i = 0; i < 5; i++) {
 		ccombo.add("fang" + i);
 	}
 	for (int i = 0; i < cases.length; i++) {
 		ccombo.setText(cases[i]);
-		assertTrue(":c:" + i, ccombo.getText().equals(cases[i]));
+		assertEquals(":c:" + i, cases[i], ccombo.getText());
 	}
 }
 

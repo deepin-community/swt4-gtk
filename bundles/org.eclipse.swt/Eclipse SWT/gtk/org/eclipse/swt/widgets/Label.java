@@ -304,11 +304,11 @@ void createHandle (int index) {
 	if ((style & SWT.SEPARATOR) != 0) return;
 	if ((style & SWT.WRAP) != 0) {
 		if (GTK.GTK4) {
-			GTK.gtk_label_set_wrap(labelHandle, true);
-			GTK.gtk_label_set_wrap_mode(labelHandle, OS.PANGO_WRAP_WORD_CHAR);
+			GTK4.gtk_label_set_wrap(labelHandle, true);
+			GTK4.gtk_label_set_wrap_mode(labelHandle, OS.PANGO_WRAP_WORD_CHAR);
 		} else {
-			GTK.gtk_label_set_line_wrap (labelHandle, true);
-			GTK.gtk_label_set_line_wrap_mode (labelHandle, OS.PANGO_WRAP_WORD_CHAR);
+			GTK3.gtk_label_set_line_wrap (labelHandle, true);
+			GTK3.gtk_label_set_line_wrap_mode (labelHandle, OS.PANGO_WRAP_WORD_CHAR);
 		}
 	}
 	// In GTK 3 font description is inherited from parent widget which is not how SWT has always worked,
@@ -585,7 +585,7 @@ int setBounds (int x, int y, int width, int height, boolean move, boolean resize
 		GTK.gtk_widget_get_allocation(labelHandle, allocation);
 		allocation.width = labelWidth;
 		allocation.height = labelHeight;
-		GTK.gtk_widget_size_allocate (labelHandle, allocation);
+		gtk_widget_size_allocate(labelHandle, allocation, -1);
 	}
 	return result;
 }
